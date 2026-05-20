@@ -1,0 +1,18 @@
+providers:
+  anthropic:
+    api_key: "${ANTHROPIC_API_KEY}"
+    base_url: "https://api.anthropic.com"
+
+active_provider: anthropic
+model: claude-sonnet-4-20250514
+max_tokens: 4096
+
+skills_dir: "./skills"
+active_skills: []
+
+memory:
+  store: file
+  dir: "./.agent/memory"
+
+server:
+  port: 8080
