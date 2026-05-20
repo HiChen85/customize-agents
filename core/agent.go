@@ -12,10 +12,12 @@ import (
 )
 
 type Agent struct {
-	llm    llm.Provider
-	memory *memory.MemoryManager
-	tools  []Tool
-	skills []*skill.Skill
+	llm               llm.Provider
+	memory            *memory.MemoryManager
+	tools             []Tool
+	skills            []*skill.Skill
+	permissionHandler *PermissionHandler
+	executor          *ToolExecutor
 }
 
 func NewAgent(provider llm.Provider, mm *memory.MemoryManager, tools []Tool, skills []*skill.Skill) *Agent {
@@ -99,8 +101,20 @@ func (a *Agent) executeTools(ctx context.Context, calls []llm.ToolUseBlock) []ll
 }
 
 func (a *Agent) executeSingleTool(ctx context.Context, call llm.ToolUseBlock) llm.ToolResultBlock {
+	if a.permissionHandler != nil {
+		if !a.permissionHandler.CheckPermission(call.Name, call.Input) {
+			return llm.ToolResultBlock{
+				ToolUseID: call.ID,
+				Content:   fmt.Sprintf("Permission denied: tool '%s' requires user approval", call.Name),
+				IsError:   true,
+			}
+		}
+	}
 	for _, tool := range a.tools {
 		if tool.Definition.Name == call.Name {
+			if a.executor != nil {
+				return a.executor.Execute(ctx, tool, call)
+			}
 			output, err := tool.Execute(ctx, call.Input)
 			if err != nil {
 				slog.Error("tool execution failed", "tool", call.Name, "error", err)
@@ -123,6 +137,9 @@ func (a *Agent) executeSingleTool(ctx context.Context, call llm.ToolUseBlock) ll
 		IsError:   true,
 	}
 }
+
+func (a *Agent) SetPermissionHandler(h *PermissionHandler) { a.permissionHandler = h }
+func (a *Agent) SetExecutor(e *ToolExecutor)               { a.executor = e }
 
 func (a *Agent) ExecuteTool(name string, input json.RawMessage) (string, error) {
 	for _, tool := range a.tools {
