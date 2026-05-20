@@ -3,11 +3,13 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log/slog"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/haichen-zhang/customize-agents/config"
 	"github.com/haichen-zhang/customize-agents/core"
@@ -42,7 +44,10 @@ func main() {
 		os.Exit(1)
 	}
 
-	llmProvider := llm.NewAnthropicProvider(providerCfg.APIKey, providerCfg.BaseURL, cfg.Model)
+	baseProvider := llm.NewAnthropicProvider(providerCfg.APIKey, providerCfg.BaseURL, cfg.Model)
+	llmProvider := llm.NewRetryProvider(baseProvider, llm.RetryConfig{
+		MaxRetries: 3, BaseDelay: 1 * time.Second, MaxDelay: 30 * time.Second, RetryableFunc: llm.DefaultRetryable,
+	})
 
 	store, err := memory.NewFileStore(cfg.Memory.Dir)
 	if err != nil {
@@ -76,6 +81,22 @@ func main() {
 	}
 
 	agent := core.NewAgent(llmProvider, mm, tools, activeSkills)
+
+	agent.SetExecutor(core.NewToolExecutor(core.ExecutorConfig{
+		Timeout: 30 * time.Second, MaxRetries: 2, RetryDelay: 1 * time.Second,
+		RetryableFunc: func(err error) bool {
+			return strings.Contains(err.Error(), "timeout") || strings.Contains(err.Error(), "temporary")
+		},
+	}))
+	agent.SetPermissionHandler(core.NewPermissionHandler(core.PermissionConfig{
+		AutoApprove: []string{"read_file", "memory_save", "memory_search", "memory_context"},
+		PromptFunc: func(toolName string, input json.RawMessage) bool {
+			fmt.Printf("[Permission] Tool '%s' wants to execute. Allow? (y/n): ", toolName)
+			var answer string
+			fmt.Scanln(&answer)
+			return answer == "y" || answer == "Y"
+		},
+	}))
 
 	fmt.Println("Agent ready. Type /help for commands, or start chatting.")
 	fmt.Printf("Provider: %s | Model: %s\n", cfg.ActiveProvider, cfg.Model)

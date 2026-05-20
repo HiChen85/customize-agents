@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/haichen-zhang/customize-agents/config"
@@ -28,7 +29,10 @@ func main() {
 	}
 
 	providerCfg := cfg.Providers[cfg.ActiveProvider]
-	llmProvider := llm.NewAnthropicProvider(providerCfg.APIKey, providerCfg.BaseURL, cfg.Model)
+	baseProvider := llm.NewAnthropicProvider(providerCfg.APIKey, providerCfg.BaseURL, cfg.Model)
+	llmProvider := llm.NewRetryProvider(baseProvider, llm.RetryConfig{
+		MaxRetries: 3, BaseDelay: 1 * time.Second, MaxDelay: 30 * time.Second, RetryableFunc: llm.DefaultRetryable,
+	})
 
 	store, err := memory.NewFileStore(cfg.Memory.Dir)
 	if err != nil {
@@ -54,6 +58,8 @@ func main() {
 	}
 
 	agent := core.NewAgent(llmProvider, mm, tools, activeSkills)
+
+	agent.SetExecutor(core.NewToolExecutor(core.ExecutorConfig{Timeout: 30 * time.Second, MaxRetries: 2, RetryDelay: 1 * time.Second}))
 
 	r := gin.Default()
 
