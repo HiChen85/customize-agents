@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os/exec"
 	"sync"
+	"time"
 )
 
 type Client struct {
@@ -116,4 +117,71 @@ func (c *Client) call(method string, params json.RawMessage) (json.RawMessage, e
 	}
 
 	return resp.Result, nil
+}
+
+type ReconnectConfig struct {
+	MaxRetries int
+	RetryDelay time.Duration
+}
+
+type ConnectFunc func() (Transport, error)
+
+type ReconnectingClient struct {
+	Client
+	connectFunc ConnectFunc
+	config      ReconnectConfig
+}
+
+func NewReconnectingClient(connectFunc ConnectFunc, config ReconnectConfig) *ReconnectingClient {
+	if config.MaxRetries <= 0 {
+		config.MaxRetries = 3
+	}
+	if config.RetryDelay <= 0 {
+		config.RetryDelay = 1 * time.Second
+	}
+	transport, _ := connectFunc()
+	return &ReconnectingClient{
+		Client:      Client{transport: transport, nextID: 1},
+		connectFunc: connectFunc,
+		config:      config,
+	}
+}
+
+func (rc *ReconnectingClient) ListTools() ([]ToolDefinition, error) {
+	tools, err := rc.Client.ListTools()
+	if err == nil {
+		return tools, nil
+	}
+	if reconnErr := rc.reconnect(); reconnErr != nil {
+		return nil, fmt.Errorf("list tools failed and reconnect failed: %w (original: %v)", reconnErr, err)
+	}
+	return rc.Client.ListTools()
+}
+
+func (rc *ReconnectingClient) CallTool(name string, arguments json.RawMessage) (string, error) {
+	result, err := rc.Client.CallTool(name, arguments)
+	if err == nil {
+		return result, nil
+	}
+	if reconnErr := rc.reconnect(); reconnErr != nil {
+		return "", fmt.Errorf("call tool failed and reconnect failed: %w (original: %v)", reconnErr, err)
+	}
+	return rc.Client.CallTool(name, arguments)
+}
+
+func (rc *ReconnectingClient) reconnect() error {
+	for attempt := 0; attempt < rc.config.MaxRetries; attempt++ {
+		if attempt > 0 {
+			time.Sleep(rc.config.RetryDelay)
+		}
+		transport, err := rc.connectFunc()
+		if err == nil {
+			rc.mu.Lock()
+			rc.transport = transport
+			rc.nextID = 1
+			rc.mu.Unlock()
+			return nil
+		}
+	}
+	return fmt.Errorf("reconnect failed after %d attempts", rc.config.MaxRetries)
 }

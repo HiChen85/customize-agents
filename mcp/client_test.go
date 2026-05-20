@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io"
 	"testing"
+	"time"
 )
 
 func TestMCPClient_ListTools(t *testing.T) {
@@ -72,5 +73,48 @@ func TestMCPClient_CallTool(t *testing.T) {
 	}
 	if result != "file contents here" {
 		t.Errorf("expected 'file contents here', got '%s'", result)
+	}
+}
+
+func TestMCPClient_ReconnectOnFailure(t *testing.T) {
+	callCount := 0
+	connectFunc := func() (Transport, error) {
+		callCount++
+		clientRead, serverWrite := io.Pipe()
+		serverRead, clientWrite := io.Pipe()
+		go func() {
+			transport := NewStdioTransport(serverRead, serverWrite)
+			for {
+				msg, err := transport.Receive()
+				if err != nil {
+					return
+				}
+				var req JSONRPCRequest
+				json.Unmarshal(msg, &req)
+				result := ListToolsResult{Tools: []ToolDefinition{{Name: "test_tool", Description: "test", InputSchema: json.RawMessage(`{}`)}}}
+				resultData, _ := json.Marshal(result)
+				transport.Send(JSONRPCResponse{JSONRPC: "2.0", ID: req.ID, Result: resultData})
+			}
+		}()
+		return NewStdioTransport(clientRead, clientWrite), nil
+	}
+	client := NewReconnectingClient(connectFunc, ReconnectConfig{MaxRetries: 3, RetryDelay: 10 * time.Millisecond})
+	tools, err := client.ListTools()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(tools) != 1 {
+		t.Fatalf("expected 1 tool, got %d", len(tools))
+	}
+	client.Client.transport.Close()
+	tools, err = client.ListTools()
+	if err != nil {
+		t.Fatalf("reconnect failed: %v", err)
+	}
+	if len(tools) != 1 {
+		t.Fatalf("expected 1 tool after reconnect, got %d", len(tools))
+	}
+	if callCount < 2 {
+		t.Errorf("expected >=2 connects, got %d", callCount)
 	}
 }
