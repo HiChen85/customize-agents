@@ -35,10 +35,11 @@ memory:
 server:
   port: 9090
 
-mcp_servers:
-  - name: filesystem
-    command: "npx @anthropic/mcp-filesystem /tmp"
-    transport: stdio
+mcp:
+  servers:
+    - name: filesystem
+      command: "npx @anthropic/mcp-filesystem /tmp"
+      transport: stdio
 `
 	os.WriteFile(cfgPath, []byte(content), 0644)
 
@@ -71,8 +72,8 @@ mcp_servers:
 	if cfg.Server.Port != 9090 {
 		t.Errorf("expected server port 9090, got %d", cfg.Server.Port)
 	}
-	if len(cfg.MCPServers) != 1 || cfg.MCPServers[0].Name != "filesystem" {
-		t.Errorf("expected 1 mcp server named 'filesystem', got %v", cfg.MCPServers)
+	if len(cfg.MCP.Servers) != 1 || cfg.MCP.Servers[0].Name != "filesystem" {
+		t.Errorf("expected 1 mcp server named 'filesystem', got %v", cfg.MCP.Servers)
 	}
 }
 
@@ -125,5 +126,55 @@ hooks:
 	}
 	if atc[0].CanAbort {
 		t.Error("expected can_abort=false for after_tool_call hook")
+	}
+}
+
+func TestLoad_WithMCP(t *testing.T) {
+	content := `
+providers:
+  anthropic:
+    api_key: "test-key"
+    base_url: "https://api.anthropic.com"
+active_provider: anthropic
+model: claude-sonnet-4-20250514
+mcp:
+  servers:
+    - name: "filesystem"
+      command: "npx -y @modelcontextprotocol/server-filesystem /tmp"
+      transport: stdio
+      timeout: 10s
+    - name: "github"
+      command: "npx -y @modelcontextprotocol/server-github"
+      transport: stdio
+      timeout: 15s
+      env:
+        GITHUB_TOKEN: "test-token"
+`
+	tmpFile := filepath.Join(t.TempDir(), "config.yaml")
+	os.WriteFile(tmpFile, []byte(content), 0644)
+
+	cfg, err := Load(tmpFile)
+	if err != nil {
+		t.Fatalf("failed to load config: %v", err)
+	}
+
+	if cfg.MCP.Servers == nil {
+		t.Fatal("expected MCP servers to be parsed")
+	}
+	if len(cfg.MCP.Servers) != 2 {
+		t.Fatalf("expected 2 MCP servers, got %d", len(cfg.MCP.Servers))
+	}
+
+	fs := cfg.MCP.Servers[0]
+	if fs.Name != "filesystem" {
+		t.Errorf("expected name 'filesystem', got '%s'", fs.Name)
+	}
+	if fs.Timeout != 10*time.Second {
+		t.Errorf("expected timeout 10s, got %v", fs.Timeout)
+	}
+
+	gh := cfg.MCP.Servers[1]
+	if gh.Env["GITHUB_TOKEN"] != "test-token" {
+		t.Errorf("expected GITHUB_TOKEN=test-token, got '%s'", gh.Env["GITHUB_TOKEN"])
 	}
 }

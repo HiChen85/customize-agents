@@ -23,7 +23,7 @@ type Config struct {
 	ActiveSkills   []string                  `yaml:"active_skills"`
 	Memory         MemoryConfig              `yaml:"memory"`
 	Server         ServerConfig              `yaml:"server"`
-	MCPServers     []MCPServerConfig         `yaml:"mcp_servers"`
+	MCP            MCPConfig                 `yaml:"mcp"`
 	Hooks          map[string][]HookConfig   `yaml:"hooks"`
 }
 
@@ -42,10 +42,16 @@ type ServerConfig struct {
 }
 
 type MCPServerConfig struct {
-	Name      string `yaml:"name"`
-	Command   string `yaml:"command,omitempty"`
-	URL       string `yaml:"url,omitempty"`
-	Transport string `yaml:"transport"`
+	Name      string            `yaml:"name"`
+	Command   string            `yaml:"command,omitempty"`
+	URL       string            `yaml:"url,omitempty"`
+	Transport string            `yaml:"transport"`
+	Timeout   time.Duration     `yaml:"timeout"`
+	Env       map[string]string `yaml:"env,omitempty"`
+}
+
+type MCPConfig struct {
+	Servers []MCPServerConfig `yaml:"servers"`
 }
 
 func Load(path string) (*Config, error) {
