@@ -14,6 +14,7 @@ import (
 	"github.com/haichen-zhang/customize-agents/config"
 	"github.com/haichen-zhang/customize-agents/core"
 	"github.com/haichen-zhang/customize-agents/llm"
+	"github.com/haichen-zhang/customize-agents/mcp"
 	"github.com/haichen-zhang/customize-agents/memory"
 	"github.com/haichen-zhang/customize-agents/skill"
 )
@@ -111,6 +112,30 @@ func main() {
 			os.Exit(1)
 		}
 		agent.SetHookRegistry(hookRegistry)
+	}
+
+	if len(cfg.MCP.Servers) > 0 {
+		mcpMgr := mcp.NewMCPManager()
+		if err := mcpMgr.Initialize(context.Background(), cfg.MCP.Servers); err != nil {
+			slog.Warn("MCP initialization had errors", "error", err)
+		} else {
+			defer mcpMgr.Close()
+		}
+
+		existingTools := make(map[string]bool, len(tools))
+		for _, t := range tools {
+			existingTools[t.Definition.Name] = true
+		}
+		mcpTools := mcpMgr.GetTools(existingTools)
+		agent.AddTools(mcpTools...)
+
+		if len(mcpTools) > 0 {
+			names := make([]string, 0, len(mcpTools))
+			for _, t := range mcpTools {
+				names = append(names, t.Definition.Name)
+			}
+			fmt.Printf("MCP tools: %s\n", strings.Join(names, ", "))
+		}
 	}
 
 	fmt.Println("Agent ready. Type /help for commands, or start chatting.")
