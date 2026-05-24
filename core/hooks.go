@@ -3,10 +3,12 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"sync"
 	"time"
 
+	"github.com/haichen-zhang/customize-agents/config"
 	"github.com/haichen-zhang/customize-agents/llm"
 )
 
@@ -21,6 +23,16 @@ const (
 	OnPermissionDenied EventType = "on_permission_denied"
 	OnError            EventType = "on_error"
 )
+
+var validEvents = map[string]EventType{
+	"on_session_start":     OnSessionStart,
+	"before_llm_call":      BeforeLLMCall,
+	"after_llm_call":       AfterLLMCall,
+	"before_tool_call":     BeforeToolCall,
+	"after_tool_call":      AfterToolCall,
+	"on_permission_denied": OnPermissionDenied,
+	"on_error":             OnError,
+}
 
 var abortableEvents = map[EventType]bool{
 	OnSessionStart: true,
@@ -94,6 +106,24 @@ func (r *HookRegistry) Fire(ctx context.Context, payload HookPayload) error {
 				return err
 			}
 			slog.Warn("hook handler error (non-abortable)", "event", payload.Event, "error", err)
+		}
+	}
+	return nil
+}
+
+func (r *HookRegistry) LoadFromConfig(hooksCfg map[string][]config.HookConfig) error {
+	for eventName, hooks := range hooksCfg {
+		event, ok := validEvents[eventName]
+		if !ok {
+			return fmt.Errorf("unknown hook event: %s", eventName)
+		}
+		for _, hcfg := range hooks {
+			handler := &ShellHook{
+				Command:  hcfg.Command,
+				Timeout:  hcfg.Timeout,
+				CanAbort: hcfg.CanAbort,
+			}
+			r.Register(event, handler)
 		}
 	}
 	return nil

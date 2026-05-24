@@ -5,6 +5,8 @@ import (
 	"errors"
 	"testing"
 	"time"
+
+	"github.com/haichen-zhang/customize-agents/config"
 )
 
 func TestGoHook_Handle(t *testing.T) {
@@ -176,5 +178,41 @@ func TestShellHook_Handle_Timeout(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected timeout error")
+	}
+}
+
+func TestHookRegistry_LoadFromConfig(t *testing.T) {
+	cfg := map[string][]config.HookConfig{
+		"before_tool_call": {
+			{Command: "echo hello", Timeout: 5 * time.Second, CanAbort: true},
+		},
+		"after_tool_call": {
+			{Command: "echo done", Timeout: 3 * time.Second, CanAbort: false},
+		},
+	}
+
+	registry := NewHookRegistry()
+	err := registry.LoadFromConfig(cfg)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	err = registry.Fire(context.Background(), HookPayload{Event: BeforeToolCall, ToolName: "test"})
+	if err != nil {
+		t.Fatalf("unexpected error firing before_tool_call: %v", err)
+	}
+}
+
+func TestHookRegistry_LoadFromConfig_InvalidEvent(t *testing.T) {
+	cfg := map[string][]config.HookConfig{
+		"invalid_event": {
+			{Command: "echo hello", Timeout: 5 * time.Second},
+		},
+	}
+
+	registry := NewHookRegistry()
+	err := registry.LoadFromConfig(cfg)
+	if err == nil {
+		t.Fatal("expected error for invalid event name")
 	}
 }
