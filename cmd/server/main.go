@@ -49,9 +49,15 @@ func main() {
 		}
 	}
 
+	searchAPIKey := os.Getenv("TAVILY_API_KEY")
 	tools := []core.Tool{
 		core.NewExecTool(),
 		core.NewReadFileTool(),
+		core.NewWriteFileTool(),
+		core.NewListDirTool(),
+		core.NewGrepTool(),
+		core.NewWebSearchTool(searchAPIKey, ""),
+		core.NewWebFetchTool(),
 		core.NewMemorySaveTool(store),
 		core.NewMemorySearchTool(store),
 		core.NewMemoryContextTool(mm),
@@ -60,6 +66,15 @@ func main() {
 	agent := core.NewAgent(llmProvider, mm, tools, activeSkills)
 
 	agent.SetExecutor(core.NewToolExecutor(core.ExecutorConfig{Timeout: 30 * time.Second, MaxRetries: 2, RetryDelay: 1 * time.Second}))
+
+	if cfg.Hooks != nil {
+		hookRegistry := core.NewHookRegistry()
+		if err := hookRegistry.LoadFromConfig(cfg.Hooks); err != nil {
+			slog.Error("failed to load hooks config", "error", err)
+			os.Exit(1)
+		}
+		agent.SetHookRegistry(hookRegistry)
+	}
 
 	r := gin.Default()
 

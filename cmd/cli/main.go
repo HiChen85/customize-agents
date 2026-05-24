@@ -72,9 +72,15 @@ func main() {
 		}
 	}
 
+	searchAPIKey := os.Getenv("TAVILY_API_KEY")
 	tools := []core.Tool{
 		core.NewExecTool(),
 		core.NewReadFileTool(),
+		core.NewWriteFileTool(),
+		core.NewListDirTool(),
+		core.NewGrepTool(),
+		core.NewWebSearchTool(searchAPIKey, ""),
+		core.NewWebFetchTool(),
 		core.NewMemorySaveTool(store),
 		core.NewMemorySearchTool(store),
 		core.NewMemoryContextTool(mm),
@@ -89,7 +95,7 @@ func main() {
 		},
 	}))
 	agent.SetPermissionHandler(core.NewPermissionHandler(core.PermissionConfig{
-		AutoApprove: []string{"read_file", "memory_save", "memory_search", "memory_context"},
+		AutoApprove: []string{"read_file", "list_dir", "grep", "web_search", "web_fetch", "memory_save", "memory_search", "memory_context"},
 		PromptFunc: func(toolName string, input json.RawMessage) bool {
 			fmt.Printf("[Permission] Tool '%s' wants to execute. Allow? (y/n): ", toolName)
 			var answer string
@@ -97,6 +103,15 @@ func main() {
 			return answer == "y" || answer == "Y"
 		},
 	}))
+
+	if cfg.Hooks != nil {
+		hookRegistry := core.NewHookRegistry()
+		if err := hookRegistry.LoadFromConfig(cfg.Hooks); err != nil {
+			slog.Error("failed to load hooks config", "error", err)
+			os.Exit(1)
+		}
+		agent.SetHookRegistry(hookRegistry)
+	}
 
 	fmt.Println("Agent ready. Type /help for commands, or start chatting.")
 	fmt.Printf("Provider: %s | Model: %s\n", cfg.ActiveProvider, cfg.Model)
