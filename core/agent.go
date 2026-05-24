@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/haichen-zhang/customize-agents/llm"
 	"github.com/haichen-zhang/customize-agents/memory"
@@ -18,6 +19,7 @@ type Agent struct {
 	skills            []*skill.Skill
 	permissionHandler *PermissionHandler
 	executor          *ToolExecutor
+	hooks             *HookRegistry
 }
 
 func NewAgent(provider llm.Provider, mm *memory.MemoryManager, tools []Tool, skills []*skill.Skill) *Agent {
@@ -29,7 +31,20 @@ func NewAgent(provider llm.Provider, mm *memory.MemoryManager, tools []Tool, ski
 	}
 }
 
+func (a *Agent) SetHookRegistry(r *HookRegistry) { a.hooks = r }
+
+func (a *Agent) fireHook(ctx context.Context, payload HookPayload) error {
+	if a.hooks == nil {
+		return nil
+	}
+	return a.hooks.Fire(ctx, payload)
+}
+
 func (a *Agent) Run(ctx context.Context, userInput string) (string, error) {
+	if err := a.fireHook(ctx, HookPayload{Event: OnSessionStart, UserInput: userInput}); err != nil {
+		return "", fmt.Errorf("session start hook aborted: %w", err)
+	}
+
 	userMsg := llm.Message{
 		Role:    "user",
 		Content: []llm.Block{llm.TextBlock{Text: userInput}},
@@ -38,10 +53,22 @@ func (a *Agent) Run(ctx context.Context, userInput string) (string, error) {
 
 	for {
 		req := a.buildRequest(ctx, userInput)
+
+		if err := a.fireHook(ctx, HookPayload{Event: BeforeLLMCall, Request: &req}); err != nil {
+			return "", fmt.Errorf("before LLM call hook aborted: %w", err)
+		}
+
+		start := time.Now()
 		resp, err := a.llm.CreateMessage(ctx, req)
+		duration := time.Since(start)
+
 		if err != nil {
+			a.fireHook(ctx, HookPayload{Event: OnError, Error: err})
+			a.fireHook(ctx, HookPayload{Event: AfterLLMCall, Duration: duration, Error: err})
 			return "", fmt.Errorf("LLM call failed: %w", err)
 		}
+
+		a.fireHook(ctx, HookPayload{Event: AfterLLMCall, Response: resp, Duration: duration})
 
 		assistantMsg := llm.Message{Role: "assistant", Content: resp.Content}
 		a.memory.AppendMessage(assistantMsg)
@@ -103,6 +130,7 @@ func (a *Agent) executeTools(ctx context.Context, calls []llm.ToolUseBlock) []ll
 func (a *Agent) executeSingleTool(ctx context.Context, call llm.ToolUseBlock) llm.ToolResultBlock {
 	if a.permissionHandler != nil {
 		if !a.permissionHandler.CheckPermission(call.Name, call.Input) {
+			a.fireHook(ctx, HookPayload{Event: OnPermissionDenied, ToolName: call.Name, Input: call.Input})
 			return llm.ToolResultBlock{
 				ToolUseID: call.ID,
 				Content:   fmt.Sprintf("Permission denied: tool '%s' requires user approval", call.Name),
@@ -110,20 +138,39 @@ func (a *Agent) executeSingleTool(ctx context.Context, call llm.ToolUseBlock) ll
 			}
 		}
 	}
+
+	if err := a.fireHook(ctx, HookPayload{Event: BeforeToolCall, ToolName: call.Name, Input: call.Input}); err != nil {
+		return llm.ToolResultBlock{
+			ToolUseID: call.ID,
+			Content:   fmt.Sprintf("Hook aborted tool '%s': %v", call.Name, err),
+			IsError:   true,
+		}
+	}
+
+	start := time.Now()
 	for _, tool := range a.tools {
 		if tool.Definition.Name == call.Name {
 			if a.executor != nil {
-				return a.executor.Execute(ctx, tool, call)
+				result := a.executor.Execute(ctx, tool, call)
+				a.fireHook(ctx, HookPayload{Event: AfterToolCall, ToolName: call.Name, Output: result.Content, Duration: time.Since(start)})
+				if result.IsError {
+					a.fireHook(ctx, HookPayload{Event: OnError, Error: fmt.Errorf("%s", result.Content), ToolName: call.Name})
+				}
+				return result
 			}
 			output, err := tool.Execute(ctx, call.Input)
+			duration := time.Since(start)
 			if err != nil {
 				slog.Error("tool execution failed", "tool", call.Name, "error", err)
+				a.fireHook(ctx, HookPayload{Event: AfterToolCall, ToolName: call.Name, Error: err, Duration: duration})
+				a.fireHook(ctx, HookPayload{Event: OnError, Error: err, ToolName: call.Name})
 				return llm.ToolResultBlock{
 					ToolUseID: call.ID,
 					Content:   fmt.Sprintf("Error: %v", err),
 					IsError:   true,
 				}
 			}
+			a.fireHook(ctx, HookPayload{Event: AfterToolCall, ToolName: call.Name, Output: output, Duration: duration})
 			return llm.ToolResultBlock{
 				ToolUseID: call.ID,
 				Content:   output,

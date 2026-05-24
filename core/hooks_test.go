@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/haichen-zhang/customize-agents/config"
+	"github.com/haichen-zhang/customize-agents/llm"
+	"github.com/haichen-zhang/customize-agents/memory"
 )
 
 func TestGoHook_Handle(t *testing.T) {
@@ -216,3 +218,64 @@ func TestHookRegistry_LoadFromConfig_InvalidEvent(t *testing.T) {
 		t.Fatal("expected error for invalid event name")
 	}
 }
+
+func TestAgent_HooksFireDuringRun(t *testing.T) {
+	var events []EventType
+
+	registry := NewHookRegistry()
+	registry.Register(OnSessionStart, NewGoHook(func(ctx context.Context, p HookPayload) error {
+		events = append(events, p.Event)
+		return nil
+	}))
+	registry.Register(BeforeLLMCall, NewGoHook(func(ctx context.Context, p HookPayload) error {
+		events = append(events, p.Event)
+		return nil
+	}))
+	registry.Register(AfterLLMCall, NewGoHook(func(ctx context.Context, p HookPayload) error {
+		events = append(events, p.Event)
+		return nil
+	}))
+
+	mockProvider := &mockLLMProvider{response: &llm.Response{
+		Content: []llm.Block{llm.TextBlock{Text: "hello"}},
+	}}
+
+	mm := memory.NewMemoryManager(&mockMemoryStore{}, 4096)
+	agent := NewAgent(mockProvider, mm, nil, nil)
+	agent.SetHookRegistry(registry)
+
+	reply, err := agent.Run(context.Background(), "hi")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if reply != "hello" {
+		t.Errorf("expected 'hello', got '%s'", reply)
+	}
+
+	expected := []EventType{OnSessionStart, BeforeLLMCall, AfterLLMCall}
+	if len(events) != len(expected) {
+		t.Fatalf("expected %d events, got %d: %v", len(expected), len(events), events)
+	}
+	for i, e := range expected {
+		if events[i] != e {
+			t.Errorf("event[%d]: expected %s, got %s", i, e, events[i])
+		}
+	}
+}
+
+type mockLLMProvider struct {
+	response *llm.Response
+}
+
+func (m *mockLLMProvider) CreateMessage(ctx context.Context, req llm.Request) (*llm.Response, error) {
+	return m.response, nil
+}
+
+type mockMemoryStore struct{}
+
+func (m *mockMemoryStore) Save(ctx context.Context, entry memory.Entry) error { return nil }
+func (m *mockMemoryStore) Search(ctx context.Context, q string, limit int) ([]memory.Entry, error) {
+	return nil, nil
+}
+func (m *mockMemoryStore) List(ctx context.Context) ([]memory.Entry, error) { return nil, nil }
+func (m *mockMemoryStore) Delete(ctx context.Context, id string) error       { return nil }
