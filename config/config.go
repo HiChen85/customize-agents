@@ -3,9 +3,16 @@ package config
 import (
 	"fmt"
 	"os"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
+
+type HookConfig struct {
+	Command  string        `yaml:"command"`
+	Timeout  time.Duration `yaml:"timeout"`
+	CanAbort bool          `yaml:"can_abort"`
+}
 
 type Config struct {
 	Providers      map[string]ProviderConfig `yaml:"providers"`
@@ -17,6 +24,7 @@ type Config struct {
 	Memory         MemoryConfig              `yaml:"memory"`
 	Server         ServerConfig              `yaml:"server"`
 	MCPServers     []MCPServerConfig         `yaml:"mcp_servers"`
+	Hooks          map[string][]HookConfig   `yaml:"hooks"`
 }
 
 type ProviderConfig struct {

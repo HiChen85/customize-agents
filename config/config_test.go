@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestLoad(t *testing.T) {
@@ -72,5 +73,57 @@ mcp_servers:
 	}
 	if len(cfg.MCPServers) != 1 || cfg.MCPServers[0].Name != "filesystem" {
 		t.Errorf("expected 1 mcp server named 'filesystem', got %v", cfg.MCPServers)
+	}
+}
+
+func TestLoad_WithHooks(t *testing.T) {
+	content := `
+providers:
+  anthropic:
+    api_key: "test-key"
+    base_url: "https://api.anthropic.com"
+active_provider: anthropic
+model: claude-sonnet-4-20250514
+hooks:
+  before_tool_call:
+    - command: "./audit.sh"
+      timeout: 10s
+      can_abort: true
+  after_tool_call:
+    - command: "./log.sh"
+      timeout: 3s
+`
+	tmpFile := filepath.Join(t.TempDir(), "config.yaml")
+	os.WriteFile(tmpFile, []byte(content), 0644)
+
+	cfg, err := Load(tmpFile)
+	if err != nil {
+		t.Fatalf("failed to load config: %v", err)
+	}
+
+	if cfg.Hooks == nil {
+		t.Fatal("expected hooks to be parsed")
+	}
+
+	btc := cfg.Hooks["before_tool_call"]
+	if len(btc) != 1 {
+		t.Fatalf("expected 1 before_tool_call hook, got %d", len(btc))
+	}
+	if btc[0].Command != "./audit.sh" {
+		t.Errorf("expected command './audit.sh', got '%s'", btc[0].Command)
+	}
+	if btc[0].Timeout != 10*time.Second {
+		t.Errorf("expected timeout 10s, got %v", btc[0].Timeout)
+	}
+	if !btc[0].CanAbort {
+		t.Error("expected can_abort=true")
+	}
+
+	atc := cfg.Hooks["after_tool_call"]
+	if len(atc) != 1 {
+		t.Fatalf("expected 1 after_tool_call hook, got %d", len(atc))
+	}
+	if atc[0].CanAbort {
+		t.Error("expected can_abort=false for after_tool_call hook")
 	}
 }
