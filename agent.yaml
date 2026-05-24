@@ -14,5 +14,34 @@ memory:
   store: file
   dir: "./.agent/memory"
 
+search:
+  api_key: "${TAVILY_API_KEY}"
+  base_url: "https://api.tavily.com"
+
 server:
   port: 8080
+
+# hooks:
+#   before_tool_call:
+#     - command: "./scripts/audit-tool.sh"
+#       timeout: 10s
+#       can_abort: true
+#   after_tool_call:
+#     - command: "./scripts/log-metrics.sh"
+#       timeout: 3s
+#   on_error:
+#     - command: "./scripts/alert.sh"
+#       timeout: 5s
+
+# mcp:
+#   servers:
+#     - name: "filesystem"
+#       command: "npx -y @modelcontextprotocol/server-filesystem /tmp"
+#       transport: stdio
+#       timeout: 10s
+#     - name: "github"
+#       command: "npx -y @modelcontextprotocol/server-github"
+#       transport: stdio
+#       timeout: 15s
+#       env:
+#         GITHUB_TOKEN: "${GITHUB_TOKEN}"
