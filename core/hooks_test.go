@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 )
 
 func TestGoHook_Handle(t *testing.T) {
@@ -110,5 +111,70 @@ func TestHookRegistry_Fire_NoHandlers(t *testing.T) {
 	err := registry.Fire(context.Background(), HookPayload{Event: OnError})
 	if err != nil {
 		t.Fatalf("fire with no handlers should return nil, got: %v", err)
+	}
+}
+
+func TestShellHook_Handle_Success(t *testing.T) {
+	hook := &ShellHook{
+		Command:  "cat",
+		Timeout:  5 * time.Second,
+		CanAbort: false,
+	}
+
+	err := hook.Handle(context.Background(), HookPayload{
+		Event:    AfterToolCall,
+		ToolName: "read_file",
+		Output:   "file content",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestShellHook_Handle_AbortOnNonZeroExit(t *testing.T) {
+	hook := &ShellHook{
+		Command:  "exit 1",
+		Timeout:  5 * time.Second,
+		CanAbort: true,
+	}
+
+	err := hook.Handle(context.Background(), HookPayload{
+		Event:    BeforeToolCall,
+		ToolName: "exec",
+	})
+	if err == nil {
+		t.Fatal("expected error from non-zero exit with can_abort=true")
+	}
+}
+
+func TestShellHook_Handle_NoAbortOnNonZeroExit(t *testing.T) {
+	hook := &ShellHook{
+		Command:  "exit 1",
+		Timeout:  5 * time.Second,
+		CanAbort: false,
+	}
+
+	err := hook.Handle(context.Background(), HookPayload{
+		Event:    AfterToolCall,
+		ToolName: "exec",
+	})
+	if err != nil {
+		t.Fatalf("can_abort=false should not return error, got: %v", err)
+	}
+}
+
+func TestShellHook_Handle_Timeout(t *testing.T) {
+	hook := &ShellHook{
+		Command:  "sleep 10",
+		Timeout:  100 * time.Millisecond,
+		CanAbort: true,
+	}
+
+	err := hook.Handle(context.Background(), HookPayload{
+		Event:    BeforeToolCall,
+		ToolName: "exec",
+	})
+	if err == nil {
+		t.Fatal("expected timeout error")
 	}
 }
