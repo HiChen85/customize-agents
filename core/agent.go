@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/haichen-zhang/customize-agents/llm"
@@ -119,11 +120,18 @@ func (a *Agent) getToolDefs() []llm.ToolDef {
 }
 
 func (a *Agent) executeTools(ctx context.Context, calls []llm.ToolUseBlock) []llm.Block {
-	results := make([]llm.Block, 0, len(calls))
-	for _, call := range calls {
-		result := a.executeSingleTool(ctx, call)
-		results = append(results, result)
+	results := make([]llm.Block, len(calls))
+	var wg sync.WaitGroup
+	wg.Add(len(calls))
+
+	for i, call := range calls {
+		go func(idx int, c llm.ToolUseBlock) {
+			defer wg.Done()
+			results[idx] = a.executeSingleTool(ctx, c)
+		}(i, call)
 	}
+
+	wg.Wait()
 	return results
 }
 
