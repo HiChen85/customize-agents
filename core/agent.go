@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -77,6 +78,84 @@ func (a *Agent) Run(ctx context.Context, userInput string) (string, error) {
 		toolCalls := extractToolUse(resp.Content)
 		if len(toolCalls) == 0 {
 			return extractText(resp.Content), nil
+		}
+
+		results := a.executeTools(ctx, toolCalls)
+		toolResultMsg := llm.Message{Role: "user", Content: results}
+		a.memory.AppendMessage(toolResultMsg)
+	}
+}
+
+func (a *Agent) RunStream(ctx context.Context, userInput string, onEvent func(llm.StreamEvent)) (string, error) {
+	sp, ok := a.llm.(llm.StreamProvider)
+	if !ok {
+		reply, err := a.Run(ctx, userInput)
+		if err != nil {
+			return "", err
+		}
+		onEvent(llm.StreamEvent{Type: "text_delta", Text: reply})
+		return reply, nil
+	}
+
+	if err := a.fireHook(ctx, HookPayload{Event: OnSessionStart, UserInput: userInput}); err != nil {
+		return "", fmt.Errorf("session start hook aborted: %w", err)
+	}
+
+	userMsg := llm.Message{
+		Role:    "user",
+		Content: []llm.Block{llm.TextBlock{Text: userInput}},
+	}
+	a.memory.AppendMessage(userMsg)
+
+	for {
+		req := a.buildRequest(ctx, userInput)
+
+		if err := a.fireHook(ctx, HookPayload{Event: BeforeLLMCall, Request: &req}); err != nil {
+			return "", fmt.Errorf("before LLM call hook aborted: %w", err)
+		}
+
+		start := time.Now()
+		ch, err := sp.CreateMessageStream(ctx, req)
+		if err != nil {
+			a.fireHook(ctx, HookPayload{Event: OnError, Error: err})
+			a.fireHook(ctx, HookPayload{Event: AfterLLMCall, Duration: time.Since(start), Error: err})
+			return "", fmt.Errorf("LLM stream failed: %w", err)
+		}
+
+		var fullText strings.Builder
+		var toolCalls []llm.ToolUseBlock
+		var blocks []llm.Block
+
+		for event := range ch {
+			switch event.Type {
+			case "text_delta":
+				onEvent(event)
+				fullText.WriteString(event.Text)
+			case "tool_use":
+				if event.ToolUse != nil {
+					toolCalls = append(toolCalls, *event.ToolUse)
+					blocks = append(blocks, *event.ToolUse)
+				}
+			case "error":
+				a.fireHook(ctx, HookPayload{Event: OnError, Error: event.Error})
+				return fullText.String(), event.Error
+			}
+		}
+
+		duration := time.Since(start)
+
+		if fullText.Len() > 0 {
+			blocks = append([]llm.Block{llm.TextBlock{Text: fullText.String()}}, blocks...)
+		}
+
+		resp := &llm.Response{Content: blocks}
+		a.fireHook(ctx, HookPayload{Event: AfterLLMCall, Response: resp, Duration: duration})
+
+		assistantMsg := llm.Message{Role: "assistant", Content: blocks}
+		a.memory.AppendMessage(assistantMsg)
+
+		if len(toolCalls) == 0 {
+			return fullText.String(), nil
 		}
 
 		results := a.executeTools(ctx, toolCalls)

@@ -148,3 +148,125 @@ func (m *mockMemStore) Search(ctx context.Context, q string, limit int) ([]memor
 }
 func (m *mockMemStore) List(ctx context.Context) ([]memory.Entry, error) { return nil, nil }
 func (m *mockMemStore) Delete(ctx context.Context, id string) error      { return nil }
+
+// Streaming tests
+
+func TestAgent_RunStream_TextOnly(t *testing.T) {
+	mockStream := &mockStreamProv{
+		streamFunc: func(ctx context.Context, req llm.Request) (<-chan llm.StreamEvent, error) {
+			ch := make(chan llm.StreamEvent, 3)
+			ch <- llm.StreamEvent{Type: "text_delta", Text: "Hello"}
+			ch <- llm.StreamEvent{Type: "text_delta", Text: " world"}
+			ch <- llm.StreamEvent{Type: "done"}
+			close(ch)
+			return ch, nil
+		},
+	}
+
+	mm := memory.NewMemoryManager(&mockMemStore{}, 4096)
+	agent := NewAgent(mockStream, mm, nil, nil)
+
+	var collected []string
+	onEvent := func(event llm.StreamEvent) {
+		if event.Type == "text_delta" {
+			collected = append(collected, event.Text)
+		}
+	}
+
+	reply, err := agent.RunStream(context.Background(), "hi", onEvent)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if reply != "Hello world" {
+		t.Errorf("expected 'Hello world', got '%s'", reply)
+	}
+	if len(collected) != 2 {
+		t.Errorf("expected 2 events, got %d", len(collected))
+	}
+}
+
+func TestAgent_RunStream_WithToolUse(t *testing.T) {
+	callCount := 0
+	mockStream := &mockStreamProv{
+		streamFunc: func(ctx context.Context, req llm.Request) (<-chan llm.StreamEvent, error) {
+			callCount++
+			ch := make(chan llm.StreamEvent, 4)
+			if callCount == 1 {
+				ch <- llm.StreamEvent{Type: "text_delta", Text: "Reading..."}
+				ch <- llm.StreamEvent{Type: "tool_use", ToolUse: &llm.ToolUseBlock{
+					ID: "t1", Name: "read_file", Input: json.RawMessage(`{"path":"test.txt"}`),
+				}}
+				ch <- llm.StreamEvent{Type: "done"}
+			} else {
+				ch <- llm.StreamEvent{Type: "text_delta", Text: "File content: hello"}
+				ch <- llm.StreamEvent{Type: "done"}
+			}
+			close(ch)
+			return ch, nil
+		},
+	}
+
+	readTool := Tool{
+		Definition: llm.ToolDef{Name: "read_file", Description: "read"},
+		Execute: func(ctx context.Context, input json.RawMessage) (string, error) {
+			return "hello", nil
+		},
+	}
+
+	mm := memory.NewMemoryManager(&mockMemStore{}, 4096)
+	agent := NewAgent(mockStream, mm, []Tool{readTool}, nil)
+
+	var events []llm.StreamEvent
+	onEvent := func(event llm.StreamEvent) {
+		events = append(events, event)
+	}
+
+	reply, err := agent.RunStream(context.Background(), "read test.txt", onEvent)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if reply != "File content: hello" {
+		t.Errorf("expected 'File content: hello', got '%s'", reply)
+	}
+	if callCount != 2 {
+		t.Errorf("expected 2 LLM calls, got %d", callCount)
+	}
+}
+
+func TestAgent_RunStream_FallbackToRun(t *testing.T) {
+	nonStreamProv := &mockProv{}
+
+	mm := memory.NewMemoryManager(&mockMemStore{}, 4096)
+	agent := NewAgent(nonStreamProv, mm, nil, nil)
+
+	var events []llm.StreamEvent
+	onEvent := func(event llm.StreamEvent) {
+		events = append(events, event)
+	}
+
+	reply, err := agent.RunStream(context.Background(), "hi", onEvent)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if reply != "ok" {
+		t.Errorf("expected 'ok', got '%s'", reply)
+	}
+	if len(events) != 1 || events[0].Text != "ok" {
+		t.Errorf("expected fallback event with text 'ok', got %v", events)
+	}
+}
+
+type mockStreamProv struct {
+	streamFunc func(ctx context.Context, req llm.Request) (<-chan llm.StreamEvent, error)
+}
+
+func (m *mockStreamProv) CreateMessage(ctx context.Context, req llm.Request) (*llm.Response, error) {
+	return &llm.Response{Content: []llm.Block{llm.TextBlock{Text: "non-stream"}}}, nil
+}
+
+func (m *mockStreamProv) CreateMessageStream(ctx context.Context, req llm.Request) (<-chan llm.StreamEvent, error) {
+	return m.streamFunc(ctx, req)
+}
