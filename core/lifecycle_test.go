@@ -4,6 +4,9 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"github.com/haichen-zhang/customize-agents/llm"
+	"github.com/haichen-zhang/customize-agents/memory"
 )
 
 func TestLifecycle_InitialState(t *testing.T) {
@@ -146,3 +149,46 @@ func TestLifecycle_WaitDone_Timeout(t *testing.T) {
 		t.Fatal("expected timeout error")
 	}
 }
+
+func TestAgent_RunRespectsLifecycle(t *testing.T) {
+	lc := NewLifecycle()
+	lc.Stop()
+
+	mm := memory.NewMemoryManager(&mockLifecycleStore{}, 4096)
+	agent := NewAgent(&mockLifecycleProv{}, mm, nil, nil)
+	agent.SetLifecycle(lc)
+
+	_, err := agent.Run(context.Background(), "hello")
+	if err == nil {
+		t.Fatal("expected error running stopped agent")
+	}
+}
+
+func TestAgent_RunStreamRespectsLifecycle(t *testing.T) {
+	lc := NewLifecycle()
+	lc.Stop()
+
+	mm := memory.NewMemoryManager(&mockLifecycleStore{}, 4096)
+	agent := NewAgent(&mockLifecycleProv{}, mm, nil, nil)
+	agent.SetLifecycle(lc)
+
+	_, err := agent.RunStream(context.Background(), "hello", func(llm.StreamEvent) {})
+	if err == nil {
+		t.Fatal("expected error running stopped agent")
+	}
+}
+
+type mockLifecycleProv struct{}
+
+func (m *mockLifecycleProv) CreateMessage(ctx context.Context, req llm.Request) (*llm.Response, error) {
+	return &llm.Response{Content: []llm.Block{llm.TextBlock{Text: "ok"}}}, nil
+}
+
+type mockLifecycleStore struct{}
+
+func (m *mockLifecycleStore) Save(ctx context.Context, entry memory.Entry) error { return nil }
+func (m *mockLifecycleStore) Search(ctx context.Context, q string, limit int) ([]memory.Entry, error) {
+	return nil, nil
+}
+func (m *mockLifecycleStore) List(ctx context.Context) ([]memory.Entry, error) { return nil, nil }
+func (m *mockLifecycleStore) Delete(ctx context.Context, id string) error       { return nil }

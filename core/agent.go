@@ -22,6 +22,7 @@ type Agent struct {
 	permissionHandler *PermissionHandler
 	executor          *ToolExecutor
 	hooks             *HookRegistry
+	lifecycle         *Lifecycle
 }
 
 func NewAgent(provider llm.Provider, mm *memory.MemoryManager, tools []Tool, skills []*skill.Skill) *Agent {
@@ -34,6 +35,15 @@ func NewAgent(provider llm.Provider, mm *memory.MemoryManager, tools []Tool, ski
 }
 
 func (a *Agent) SetHookRegistry(r *HookRegistry) { a.hooks = r }
+func (a *Agent) SetLifecycle(l *Lifecycle)        { a.lifecycle = l }
+func (a *Agent) Lifecycle() *Lifecycle             { return a.lifecycle }
+
+func (a *Agent) checkPausePoint(ctx context.Context) error {
+	if a.lifecycle == nil {
+		return nil
+	}
+	return a.lifecycle.WaitIfPaused(ctx)
+}
 
 func (a *Agent) fireHook(ctx context.Context, payload HookPayload) error {
 	if a.hooks == nil {
@@ -43,6 +53,21 @@ func (a *Agent) fireHook(ctx context.Context, payload HookPayload) error {
 }
 
 func (a *Agent) Run(ctx context.Context, userInput string) (string, error) {
+	if a.lifecycle != nil {
+		if a.lifecycle.State() == StateStopped {
+			return "", fmt.Errorf("agent is stopped")
+		}
+		if err := a.lifecycle.Transition(StateRunning); err != nil {
+			return "", fmt.Errorf("lifecycle transition failed: %w", err)
+		}
+		defer func() {
+			if a.lifecycle.State() == StateRunning {
+				a.lifecycle.Transition(StateIdle)
+			}
+			a.lifecycle.MarkDone()
+		}()
+	}
+
 	if err := a.fireHook(ctx, HookPayload{Event: OnSessionStart, UserInput: userInput}); err != nil {
 		return "", fmt.Errorf("session start hook aborted: %w", err)
 	}
@@ -54,6 +79,10 @@ func (a *Agent) Run(ctx context.Context, userInput string) (string, error) {
 	a.memory.AppendMessage(userMsg)
 
 	for {
+		if err := a.checkPausePoint(ctx); err != nil {
+			return "", fmt.Errorf("paused: %w", err)
+		}
+
 		req := a.buildRequest(ctx, userInput)
 
 		if err := a.fireHook(ctx, HookPayload{Event: BeforeLLMCall, Request: &req}); err != nil {
@@ -97,6 +126,21 @@ func (a *Agent) RunStream(ctx context.Context, userInput string, onEvent func(ll
 		return reply, nil
 	}
 
+	if a.lifecycle != nil {
+		if a.lifecycle.State() == StateStopped {
+			return "", fmt.Errorf("agent is stopped")
+		}
+		if err := a.lifecycle.Transition(StateRunning); err != nil {
+			return "", fmt.Errorf("lifecycle transition failed: %w", err)
+		}
+		defer func() {
+			if a.lifecycle.State() == StateRunning {
+				a.lifecycle.Transition(StateIdle)
+			}
+			a.lifecycle.MarkDone()
+		}()
+	}
+
 	if err := a.fireHook(ctx, HookPayload{Event: OnSessionStart, UserInput: userInput}); err != nil {
 		return "", fmt.Errorf("session start hook aborted: %w", err)
 	}
@@ -108,6 +152,10 @@ func (a *Agent) RunStream(ctx context.Context, userInput string, onEvent func(ll
 	a.memory.AppendMessage(userMsg)
 
 	for {
+		if err := a.checkPausePoint(ctx); err != nil {
+			return "", fmt.Errorf("paused: %w", err)
+		}
+
 		req := a.buildRequest(ctx, userInput)
 
 		if err := a.fireHook(ctx, HookPayload{Event: BeforeLLMCall, Request: &req}); err != nil {
