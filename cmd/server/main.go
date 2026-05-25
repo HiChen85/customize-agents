@@ -91,6 +91,24 @@ func main() {
 		tools = append(tools, mcpTools...)
 	}
 
+	// Sandbox
+	var sandbox *core.Sandbox
+	if len(cfg.Sandbox.BlockedCommands) > 0 || len(cfg.Sandbox.AllowedCommands) > 0 {
+		sandbox = core.NewSandbox(core.SandboxConfig{
+			AllowedCommands: cfg.Sandbox.AllowedCommands,
+			BlockedCommands: cfg.Sandbox.BlockedCommands,
+			AllowedPaths:    cfg.Sandbox.AllowedPaths,
+			BlockedPaths:    cfg.Sandbox.BlockedPaths,
+			MaxOutputSize:   cfg.Sandbox.MaxOutputSize,
+		})
+		for i, tool := range tools {
+			if tool.Definition.Name == "exec" {
+				tools[i] = sandbox.WrapExecTool(tool)
+				break
+			}
+		}
+	}
+
 	// Hook registry
 	var hookRegistry *core.HookRegistry
 	if cfg.Hooks != nil {
@@ -122,6 +140,37 @@ func main() {
 		TTL:             cfg.Sessions.TTL,
 		CleanupInterval: cfg.Sessions.CleanupInterval,
 	}, factory)
+
+	// Config hot reload
+	cfgWatcher, err := config.NewConfigWatcher(*cfgPath, 1*time.Second)
+	if err != nil {
+		slog.Warn("config watcher creation failed", "error", err)
+	} else {
+		cfgWatcher.OnReload(func(oldCfg, newCfg *config.Config) {
+			if sandbox != nil {
+				sandbox.UpdateConfig(core.SandboxConfig{
+					AllowedCommands: newCfg.Sandbox.AllowedCommands,
+					BlockedCommands: newCfg.Sandbox.BlockedCommands,
+					AllowedPaths:    newCfg.Sandbox.AllowedPaths,
+					BlockedPaths:    newCfg.Sandbox.BlockedPaths,
+					MaxOutputSize:   newCfg.Sandbox.MaxOutputSize,
+				})
+				slog.Info("sandbox config reloaded")
+			}
+			if hookRegistry != nil && newCfg.Hooks != nil {
+				if err := hookRegistry.Reload(newCfg.Hooks); err != nil {
+					slog.Warn("hooks reload failed", "error", err)
+				} else {
+					slog.Info("hooks config reloaded")
+				}
+			}
+		})
+		if err := cfgWatcher.Start(); err != nil {
+			slog.Warn("config watcher start failed", "error", err)
+		} else {
+			defer cfgWatcher.Stop()
+		}
+	}
 
 	r := gin.Default()
 

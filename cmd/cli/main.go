@@ -94,6 +94,23 @@ func main() {
 		core.NewMemoryContextTool(mm),
 	}
 
+	var sandbox *core.Sandbox
+	if len(cfg.Sandbox.BlockedCommands) > 0 || len(cfg.Sandbox.AllowedCommands) > 0 {
+		sandbox = core.NewSandbox(core.SandboxConfig{
+			AllowedCommands: cfg.Sandbox.AllowedCommands,
+			BlockedCommands: cfg.Sandbox.BlockedCommands,
+			AllowedPaths:    cfg.Sandbox.AllowedPaths,
+			BlockedPaths:    cfg.Sandbox.BlockedPaths,
+			MaxOutputSize:   cfg.Sandbox.MaxOutputSize,
+		})
+		for i, tool := range tools {
+			if tool.Definition.Name == "exec" {
+				tools[i] = sandbox.WrapExecTool(tool)
+				break
+			}
+		}
+	}
+
 	agent := core.NewAgent(llmProvider, mm, tools, activeSkills)
 
 	agent.SetExecutor(core.NewToolExecutor(core.ExecutorConfig{

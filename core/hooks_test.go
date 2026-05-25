@@ -279,3 +279,38 @@ func (m *mockMemoryStore) Search(ctx context.Context, q string, limit int) ([]me
 }
 func (m *mockMemoryStore) List(ctx context.Context) ([]memory.Entry, error) { return nil, nil }
 func (m *mockMemoryStore) Delete(ctx context.Context, id string) error       { return nil }
+
+func TestHookRegistry_Reload(t *testing.T) {
+	registry := NewHookRegistry()
+
+	goHookCalled := false
+	registry.Register(AfterToolCall, NewGoHook(func(ctx context.Context, p HookPayload) error {
+		goHookCalled = true
+		return nil
+	}))
+
+	cfg := map[string][]config.HookConfig{
+		"before_tool_call": {
+			{Command: "echo original", Timeout: 5 * time.Second},
+		},
+	}
+	registry.LoadFromConfig(cfg)
+
+	newCfg := map[string][]config.HookConfig{
+		"before_tool_call": {
+			{Command: "echo reloaded", Timeout: 5 * time.Second},
+		},
+		"on_error": {
+			{Command: "echo error", Timeout: 3 * time.Second},
+		},
+	}
+	err := registry.Reload(newCfg)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	registry.Fire(context.Background(), HookPayload{Event: AfterToolCall, ToolName: "test"})
+	if !goHookCalled {
+		t.Error("GoHook should survive reload")
+	}
+}

@@ -128,3 +128,34 @@ func (r *HookRegistry) LoadFromConfig(hooksCfg map[string][]config.HookConfig) e
 	}
 	return nil
 }
+
+func (r *HookRegistry) Reload(hooksCfg map[string][]config.HookConfig) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	newHooks := make(map[EventType][]HookHandler)
+	for event, handlers := range r.hooks {
+		for _, h := range handlers {
+			if _, isShell := h.(*ShellHook); !isShell {
+				newHooks[event] = append(newHooks[event], h)
+			}
+		}
+	}
+	r.hooks = newHooks
+
+	for eventName, hooks := range hooksCfg {
+		event, ok := validEvents[eventName]
+		if !ok {
+			return fmt.Errorf("unknown hook event: %s", eventName)
+		}
+		for _, hcfg := range hooks {
+			handler := &ShellHook{
+				Command:  hcfg.Command,
+				Timeout:  hcfg.Timeout,
+				CanAbort: hcfg.CanAbort,
+			}
+			r.hooks[event] = append(r.hooks[event], handler)
+		}
+	}
+	return nil
+}

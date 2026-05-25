@@ -58,3 +58,21 @@ server:
 #   compaction:
 #     threshold: 0.8
 #     model: ""
+
+# sandbox:
+#   blocked_commands:
+#     - "rm"
+#     - "rmdir"
+#     - "curl"
+#     - "wget"
+#     - "ssh"
+#   allowed_commands: []
+#   allowed_paths:
+#     - "/Users/haichen.zhang/Documents"
+#     - "/tmp"
+#   blocked_paths:
+#     - "/etc"
+#     - "/root"
+#     - "~/.ssh"
+#     - "~/.aws"
+#   max_output_size: 102400

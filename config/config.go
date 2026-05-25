@@ -24,6 +24,14 @@ type SessionsConfig struct {
 	CleanupInterval time.Duration `yaml:"cleanup_interval"`
 }
 
+type SandboxConfig struct {
+	AllowedCommands []string `yaml:"allowed_commands"`
+	BlockedCommands []string `yaml:"blocked_commands"`
+	AllowedPaths    []string `yaml:"allowed_paths"`
+	BlockedPaths    []string `yaml:"blocked_paths"`
+	MaxOutputSize   int      `yaml:"max_output_size"`
+}
+
 type Config struct {
 	Providers      map[string]ProviderConfig `yaml:"providers"`
 	ActiveProvider string                    `yaml:"active_provider"`
@@ -37,6 +45,7 @@ type Config struct {
 	Hooks          map[string][]HookConfig   `yaml:"hooks"`
 	Lifecycle      LifecycleConfig           `yaml:"lifecycle"`
 	Sessions       SessionsConfig            `yaml:"sessions"`
+	Sandbox        SandboxConfig             `yaml:"sandbox"`
 }
 
 type ProviderConfig struct {
