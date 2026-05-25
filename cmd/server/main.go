@@ -43,6 +43,13 @@ func main() {
 	}
 	mm := memory.NewMemoryManager(store, cfg.MaxTokens)
 
+	compactor := memory.NewCompactor(memory.CompactionConfig{
+		Threshold: cfg.Memory.Compaction.Threshold,
+		Provider:  llmProvider,
+		Model:     cfg.Memory.Compaction.Model,
+	})
+	mm.Working.SetCompactor(compactor)
+
 	allSkills, _ := skill.LoadAllSkills(cfg.SkillsDir)
 	var activeSkills []*skill.Skill
 	for _, name := range cfg.ActiveSkills {

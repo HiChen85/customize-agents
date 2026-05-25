@@ -37,9 +37,15 @@ type ProviderConfig struct {
 	BaseURL string `yaml:"base_url"`
 }
 
+type CompactionConfig struct {
+	Threshold float64 `yaml:"threshold"`
+	Model     string  `yaml:"model"`
+}
+
 type MemoryConfig struct {
-	Store string `yaml:"store"`
-	Dir   string `yaml:"dir"`
+	Store      string           `yaml:"store"`
+	Dir        string           `yaml:"dir"`
+	Compaction CompactionConfig `yaml:"compaction"`
 }
 
 type ServerConfig struct {
@@ -83,6 +89,9 @@ func Load(path string) (*Config, error) {
 	}
 	if cfg.Memory.Store == "" {
 		cfg.Memory.Store = "file"
+	}
+	if cfg.Memory.Compaction.Threshold <= 0 {
+		cfg.Memory.Compaction.Threshold = 0.8
 	}
 	if cfg.SkillsDir == "" {
 		cfg.SkillsDir = "./skills"

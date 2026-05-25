@@ -57,6 +57,13 @@ func main() {
 	}
 	mm := memory.NewMemoryManager(store, cfg.MaxTokens)
 
+	compactor := memory.NewCompactor(memory.CompactionConfig{
+		Threshold: cfg.Memory.Compaction.Threshold,
+		Provider:  llmProvider,
+		Model:     cfg.Memory.Compaction.Model,
+	})
+	mm.Working.SetCompactor(compactor)
+
 	allSkills, err := skill.LoadAllSkills(cfg.SkillsDir)
 	if err != nil {
 		slog.Warn("failed to load skills", "error", err)
