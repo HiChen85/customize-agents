@@ -18,6 +18,12 @@ type LifecycleConfig struct {
 	ShutdownTimeout time.Duration `yaml:"shutdown_timeout"`
 }
 
+type SessionsConfig struct {
+	MaxSessions     int           `yaml:"max_sessions"`
+	TTL             time.Duration `yaml:"ttl"`
+	CleanupInterval time.Duration `yaml:"cleanup_interval"`
+}
+
 type Config struct {
 	Providers      map[string]ProviderConfig `yaml:"providers"`
 	ActiveProvider string                    `yaml:"active_provider"`
@@ -30,6 +36,7 @@ type Config struct {
 	MCP            MCPConfig                 `yaml:"mcp"`
 	Hooks          map[string][]HookConfig   `yaml:"hooks"`
 	Lifecycle      LifecycleConfig           `yaml:"lifecycle"`
+	Sessions       SessionsConfig            `yaml:"sessions"`
 }
 
 type ProviderConfig struct {
@@ -98,6 +105,15 @@ func Load(path string) (*Config, error) {
 	}
 	if cfg.Lifecycle.ShutdownTimeout <= 0 {
 		cfg.Lifecycle.ShutdownTimeout = 30 * time.Second
+	}
+	if cfg.Sessions.MaxSessions <= 0 {
+		cfg.Sessions.MaxSessions = 100
+	}
+	if cfg.Sessions.TTL <= 0 {
+		cfg.Sessions.TTL = 30 * time.Minute
+	}
+	if cfg.Sessions.CleanupInterval <= 0 {
+		cfg.Sessions.CleanupInterval = 1 * time.Minute
 	}
 
 	return &cfg, nil

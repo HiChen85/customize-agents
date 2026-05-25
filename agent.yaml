@@ -45,3 +45,16 @@ server:
 #       timeout: 15s
 #       env:
 #         GITHUB_TOKEN: "${GITHUB_TOKEN}"
+
+# lifecycle:
+#   shutdown_timeout: 30s
+
+# sessions:
+#   max_sessions: 100
+#   ttl: 30m
+#   cleanup_interval: 1m
+
+# memory:
+#   compaction:
+#     threshold: 0.8
+#     model: ""

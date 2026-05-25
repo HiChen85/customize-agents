@@ -2,13 +2,15 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
-	"strings"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -72,19 +74,7 @@ func main() {
 		core.NewMemoryContextTool(mm),
 	}
 
-	agent := core.NewAgent(llmProvider, mm, tools, activeSkills)
-
-	agent.SetExecutor(core.NewToolExecutor(core.ExecutorConfig{Timeout: 30 * time.Second, MaxRetries: 2, RetryDelay: 1 * time.Second}))
-
-	if cfg.Hooks != nil {
-		hookRegistry := core.NewHookRegistry()
-		if err := hookRegistry.LoadFromConfig(cfg.Hooks); err != nil {
-			slog.Error("failed to load hooks config", "error", err)
-			os.Exit(1)
-		}
-		agent.SetHookRegistry(hookRegistry)
-	}
-
+	// MCP tools
 	if len(cfg.MCP.Servers) > 0 {
 		mcpMgr := mcp.NewMCPManager()
 		if err := mcpMgr.Initialize(context.Background(), cfg.MCP.Servers); err != nil {
@@ -98,40 +88,92 @@ func main() {
 			existingTools[t.Definition.Name] = true
 		}
 		mcpTools := mcpMgr.GetTools(existingTools)
-		agent.AddTools(mcpTools...)
+		tools = append(tools, mcpTools...)
 	}
+
+	// Hook registry
+	var hookRegistry *core.HookRegistry
+	if cfg.Hooks != nil {
+		hookRegistry = core.NewHookRegistry()
+		if err := hookRegistry.LoadFromConfig(cfg.Hooks); err != nil {
+			slog.Error("failed to load hooks config", "error", err)
+			os.Exit(1)
+		}
+	}
+
+	factory := &core.SessionFactory{
+		Provider:  llmProvider,
+		Tools:     tools,
+		Skills:    activeSkills,
+		Store:     store,
+		Hooks:     hookRegistry,
+		MaxTokens: cfg.MaxTokens,
+	}
+
+	sessionMgr := core.NewSessionManager(core.SessionConfig{
+		MaxSessions:     cfg.Sessions.MaxSessions,
+		TTL:             cfg.Sessions.TTL,
+		CleanupInterval: cfg.Sessions.CleanupInterval,
+	}, factory)
 
 	r := gin.Default()
 
 	v1 := r.Group("/v1")
 	{
-		v1.POST("/chat", chatHandler(agent))
-		v1.POST("/chat/stream", streamChatHandler(agent))
-		v1.GET("/skills", listSkillsHandler(allSkills, agent))
-		v1.POST("/skills/activate", activateSkillHandler(allSkills, agent))
+		v1.POST("/chat", chatHandler(sessionMgr))
+		v1.POST("/chat/stream", streamChatHandler(sessionMgr))
+		v1.GET("/sessions", listSessionsHandler(sessionMgr))
+		v1.DELETE("/sessions/:id", deleteSessionHandler(sessionMgr))
 		v1.GET("/memory/search", memorySearchHandler(mm))
 		v1.GET("/status", statusHandler(mm))
 	}
 
 	addr := fmt.Sprintf(":%d", cfg.Server.Port)
-	slog.Info("starting server", "addr", addr)
-	if err := r.Run(addr); err != nil {
-		slog.Error("server failed", "error", err)
-		os.Exit(1)
+
+	srv := &http.Server{Addr: addr, Handler: r}
+
+	go func() {
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			slog.Error("server failed", "error", err)
+			os.Exit(1)
+		}
+	}()
+
+	slog.Info("server started", "addr", addr)
+
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+
+	slog.Info("shutting down server...")
+
+	shutdownTimeout := cfg.Lifecycle.ShutdownTimeout
+	if err := sessionMgr.Shutdown(shutdownTimeout); err != nil {
+		slog.Warn("session shutdown had errors", "error", err)
 	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(ctx); err != nil {
+		slog.Error("server forced shutdown", "error", err)
+	}
+
+	slog.Info("server exited")
 }
 
 type ChatRequest struct {
-	Message string   `json:"message" binding:"required"`
-	Skills  []string `json:"skills,omitempty"`
+	Message   string   `json:"message" binding:"required"`
+	SessionID string   `json:"session_id,omitempty"`
+	Skills    []string `json:"skills,omitempty"`
 }
 
 type ChatResponse struct {
 	Reply     string   `json:"reply"`
+	SessionID string   `json:"session_id"`
 	ToolsUsed []string `json:"tools_used,omitempty"`
 }
 
-func chatHandler(agent *core.Agent) gin.HandlerFunc {
+func chatHandler(sessionMgr *core.SessionManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req ChatRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -139,57 +181,112 @@ func chatHandler(agent *core.Agent) gin.HandlerFunc {
 			return
 		}
 
-		reply, err := agent.Run(context.Background(), req.Message)
+		sessionID := req.SessionID
+		if sessionID == "" {
+			sessionID = generateID()
+		}
+
+		session, _, err := sessionMgr.GetOrCreate(sessionID)
+		if err != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
+			return
+		}
+
+		session.Lock()
+		defer session.Unlock()
+
+		reply, err := session.Agent.Run(c.Request.Context(), req.Message)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
 
-		c.JSON(http.StatusOK, ChatResponse{Reply: reply})
+		c.JSON(http.StatusOK, ChatResponse{Reply: reply, SessionID: sessionID})
 	}
 }
 
-func listSkillsHandler(allSkills []*skill.Skill, agent *core.Agent) gin.HandlerFunc {
+func streamChatHandler(sessionMgr *core.SessionManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		type skillInfo struct {
-			Name        string `json:"name"`
-			Description string `json:"description"`
-			Active      bool   `json:"active"`
-		}
-
-		var result []skillInfo
-		for _, s := range allSkills {
-			active := false
-			for _, as := range agent.ActiveSkills() {
-				if as.Name == s.Name {
-					active = true
-					break
-				}
-			}
-			result = append(result, skillInfo{Name: s.Name, Description: s.Description, Active: active})
-		}
-		c.JSON(http.StatusOK, gin.H{"skills": result})
-	}
-}
-
-func activateSkillHandler(allSkills []*skill.Skill, agent *core.Agent) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		var req struct {
-			Name string `json:"name" binding:"required"`
-		}
+		var req ChatRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
 
-		s := skill.FindSkillByName(allSkills, strings.TrimSpace(req.Name))
-		if s == nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "skill not found"})
+		sessionID := req.SessionID
+		if sessionID == "" {
+			sessionID = generateID()
+		}
+
+		session, _, err := sessionMgr.GetOrCreate(sessionID)
+		if err != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
 			return
 		}
 
-		agent.ActivateSkill(s)
-		c.JSON(http.StatusOK, gin.H{"message": "activated", "skill": s.Name})
+		session.Lock()
+		defer session.Unlock()
+
+		c.Header("Content-Type", "text/event-stream")
+		c.Header("Cache-Control", "no-cache")
+		c.Header("Connection", "keep-alive")
+
+		ctx := c.Request.Context()
+
+		onEvent := func(event llm.StreamEvent) {
+			var data []byte
+			switch event.Type {
+			case "text_delta":
+				data, _ = json.Marshal(gin.H{"type": "text_delta", "text": event.Text})
+			case "tool_use":
+				if event.ToolUse != nil {
+					data, _ = json.Marshal(gin.H{"type": "tool_use", "tool": event.ToolUse.Name})
+				}
+			}
+			if data != nil {
+				c.SSEvent("message", string(data))
+				c.Writer.Flush()
+			}
+		}
+
+		reply, err := session.Agent.RunStream(ctx, req.Message, onEvent)
+		if err != nil {
+			errData, _ := json.Marshal(gin.H{"type": "error", "error": err.Error()})
+			c.SSEvent("message", string(errData))
+			c.Writer.Flush()
+			return
+		}
+
+		doneData, _ := json.Marshal(gin.H{"type": "done", "reply": reply, "session_id": sessionID})
+		c.SSEvent("message", string(doneData))
+		c.Writer.Flush()
+	}
+}
+
+func listSessionsHandler(sessionMgr *core.SessionManager) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		sessions := sessionMgr.List()
+		type sessionInfo struct {
+			ID        string    `json:"id"`
+			CreatedAt time.Time `json:"created_at"`
+			LastUsed  time.Time `json:"last_used"`
+		}
+		result := make([]sessionInfo, 0, len(sessions))
+		for _, s := range sessions {
+			result = append(result, sessionInfo{ID: s.ID, CreatedAt: s.CreatedAt, LastUsed: s.LastUsed})
+		}
+		c.JSON(http.StatusOK, gin.H{"sessions": result})
+	}
+}
+
+func deleteSessionHandler(sessionMgr *core.SessionManager) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id := c.Param("id")
+		if err := sessionMgr.Delete(id); err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"message": "session deleted"})
 	}
 }
 
@@ -222,46 +319,8 @@ func statusHandler(mm *memory.MemoryManager) gin.HandlerFunc {
 	}
 }
 
-func streamChatHandler(agent *core.Agent) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		var req ChatRequest
-		if err := c.ShouldBindJSON(&req); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-			return
-		}
-
-		c.Header("Content-Type", "text/event-stream")
-		c.Header("Cache-Control", "no-cache")
-		c.Header("Connection", "keep-alive")
-
-		ctx := c.Request.Context()
-
-		onEvent := func(event llm.StreamEvent) {
-			var data []byte
-			switch event.Type {
-			case "text_delta":
-				data, _ = json.Marshal(gin.H{"type": "text_delta", "text": event.Text})
-			case "tool_use":
-				if event.ToolUse != nil {
-					data, _ = json.Marshal(gin.H{"type": "tool_use", "tool": event.ToolUse.Name})
-				}
-			}
-			if data != nil {
-				c.SSEvent("message", string(data))
-				c.Writer.Flush()
-			}
-		}
-
-		reply, err := agent.RunStream(ctx, req.Message, onEvent)
-		if err != nil {
-			errData, _ := json.Marshal(gin.H{"type": "error", "error": err.Error()})
-			c.SSEvent("message", string(errData))
-			c.Writer.Flush()
-			return
-		}
-
-		doneData, _ := json.Marshal(gin.H{"type": "done", "reply": reply})
-		c.SSEvent("message", string(doneData))
-		c.Writer.Flush()
-	}
+func generateID() string {
+	b := make([]byte, 16)
+	rand.Read(b)
+	return fmt.Sprintf("%x", b)
 }
