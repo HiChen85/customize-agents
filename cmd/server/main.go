@@ -101,6 +101,13 @@ func main() {
 		}
 	}
 
+	// Metrics collector
+	if hookRegistry == nil {
+		hookRegistry = core.NewHookRegistry()
+	}
+	metricsCollector := core.NewMetricsCollector()
+	core.RegisterMetricsHooks(hookRegistry, metricsCollector)
+
 	factory := &core.SessionFactory{
 		Provider:  llmProvider,
 		Tools:     tools,
@@ -118,6 +125,10 @@ func main() {
 
 	r := gin.Default()
 
+	r.GET("/metrics", func(c *gin.Context) {
+		c.String(http.StatusOK, metricsCollector.PrometheusFormat())
+	})
+
 	v1 := r.Group("/v1")
 	{
 		v1.POST("/chat", chatHandler(sessionMgr))
@@ -126,6 +137,10 @@ func main() {
 		v1.DELETE("/sessions/:id", deleteSessionHandler(sessionMgr))
 		v1.GET("/memory/search", memorySearchHandler(mm))
 		v1.GET("/status", statusHandler(mm))
+		v1.GET("/metrics", func(c *gin.Context) {
+			snap := metricsCollector.Snapshot()
+			c.JSON(http.StatusOK, snap)
+		})
 	}
 
 	addr := fmt.Sprintf(":%d", cfg.Server.Port)
