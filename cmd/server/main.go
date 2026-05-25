@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -98,6 +99,7 @@ func main() {
 	v1 := r.Group("/v1")
 	{
 		v1.POST("/chat", chatHandler(agent))
+		v1.POST("/chat/stream", streamChatHandler(agent))
 		v1.GET("/skills", listSkillsHandler(allSkills, agent))
 		v1.POST("/skills/activate", activateSkillHandler(allSkills, agent))
 		v1.GET("/memory/search", memorySearchHandler(mm))
@@ -210,5 +212,49 @@ func statusHandler(mm *memory.MemoryManager) gin.HandlerFunc {
 			"token_max":     max,
 			"usage_percent": float64(used) / float64(max) * 100,
 		})
+	}
+}
+
+func streamChatHandler(agent *core.Agent) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req ChatRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		c.Header("Content-Type", "text/event-stream")
+		c.Header("Cache-Control", "no-cache")
+		c.Header("Connection", "keep-alive")
+
+		ctx := c.Request.Context()
+
+		onEvent := func(event llm.StreamEvent) {
+			var data []byte
+			switch event.Type {
+			case "text_delta":
+				data, _ = json.Marshal(gin.H{"type": "text_delta", "text": event.Text})
+			case "tool_use":
+				if event.ToolUse != nil {
+					data, _ = json.Marshal(gin.H{"type": "tool_use", "tool": event.ToolUse.Name})
+				}
+			}
+			if data != nil {
+				c.SSEvent("message", string(data))
+				c.Writer.Flush()
+			}
+		}
+
+		reply, err := agent.RunStream(ctx, req.Message, onEvent)
+		if err != nil {
+			errData, _ := json.Marshal(gin.H{"type": "error", "error": err.Error()})
+			c.SSEvent("message", string(errData))
+			c.Writer.Flush()
+			return
+		}
+
+		doneData, _ := json.Marshal(gin.H{"type": "done", "reply": reply})
+		c.SSEvent("message", string(doneData))
+		c.Writer.Flush()
 	}
 }
