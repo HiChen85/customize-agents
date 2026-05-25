@@ -165,13 +165,17 @@ func main() {
 			continue
 		}
 
-		reply, err := agent.Run(ctx, input)
-		if err != nil {
-			fmt.Printf("Error: %v\n", err)
-		} else {
-			fmt.Println(reply)
+		onEvent := func(event llm.StreamEvent) {
+			if event.Type == "text_delta" {
+				fmt.Print(event.Text)
+			}
 		}
-		fmt.Println()
+		_, err := agent.RunStream(ctx, input, onEvent)
+		if err != nil {
+			fmt.Printf("\nError: %v\n", err)
+		} else {
+			fmt.Println()
+		}
 		fmt.Print("> ")
 	}
 }
