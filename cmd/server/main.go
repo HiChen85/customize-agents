@@ -14,12 +14,12 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/haichen-zhang/customize-agents/config"
-	"github.com/haichen-zhang/customize-agents/core"
-	"github.com/haichen-zhang/customize-agents/llm"
-	"github.com/haichen-zhang/customize-agents/mcp"
-	"github.com/haichen-zhang/customize-agents/memory"
-	"github.com/haichen-zhang/customize-agents/skill"
+	"github.com/HiChen85/customize-agents/config"
+	"github.com/HiChen85/customize-agents/core"
+	"github.com/HiChen85/customize-agents/llm"
+	"github.com/HiChen85/customize-agents/mcp"
+	"github.com/HiChen85/customize-agents/memory"
+	"github.com/HiChen85/customize-agents/skill"
 )
 
 func main() {

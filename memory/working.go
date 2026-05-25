@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/haichen-zhang/customize-agents/llm"
+	"github.com/HiChen85/customize-agents/llm"
 )
 
 type WorkingMemory struct {

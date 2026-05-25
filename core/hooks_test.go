@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/haichen-zhang/customize-agents/config"
-	"github.com/haichen-zhang/customize-agents/llm"
-	"github.com/haichen-zhang/customize-agents/memory"
+	"github.com/HiChen85/customize-agents/config"
+	"github.com/HiChen85/customize-agents/llm"
+	"github.com/HiChen85/customize-agents/memory"
 )
 
 func TestGoHook_Handle(t *testing.T) {

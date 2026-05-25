@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/haichen-zhang/customize-agents/config"
-	"github.com/haichen-zhang/customize-agents/llm"
+	"github.com/HiChen85/customize-agents/config"
+	"github.com/HiChen85/customize-agents/llm"
 )
 
 type EventType string

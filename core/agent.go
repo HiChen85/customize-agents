@@ -9,9 +9,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/haichen-zhang/customize-agents/llm"
-	"github.com/haichen-zhang/customize-agents/memory"
-	"github.com/haichen-zhang/customize-agents/skill"
+	"github.com/HiChen85/customize-agents/llm"
+	"github.com/HiChen85/customize-agents/memory"
+	"github.com/HiChen85/customize-agents/skill"
 )
 
 type Agent struct {

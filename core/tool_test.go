@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/haichen-zhang/customize-agents/memory"
+	"github.com/HiChen85/customize-agents/memory"
 )
 
 func TestExecTool(t *testing.T) {

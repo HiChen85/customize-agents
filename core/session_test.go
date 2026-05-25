@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/haichen-zhang/customize-agents/llm"
-	"github.com/haichen-zhang/customize-agents/memory"
+	"github.com/HiChen85/customize-agents/llm"
+	"github.com/HiChen85/customize-agents/memory"
 )
 
 func TestSessionManager_GetOrCreate_NewSession(t *testing.T) {

@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/haichen-zhang/customize-agents/llm"
+	"github.com/HiChen85/customize-agents/llm"
 )
 
 func TestToolExecutor_Timeout(t *testing.T) {

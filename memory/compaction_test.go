@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/haichen-zhang/customize-agents/llm"
+	"github.com/HiChen85/customize-agents/llm"
 )
 
 func TestCompactor_Summarize_Success(t *testing.T) {

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/haichen-zhang/customize-agents/llm"
+	"github.com/HiChen85/customize-agents/llm"
 )
 
 const defaultCompactionPrompt = `Summarize the following conversation concisely. Preserve:

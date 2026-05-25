@@ -1,4 +1,4 @@
-module github.com/haichen-zhang/customize-agents
+module github.com/HiChen85/customize-agents
 
 go 1.25.3
 
