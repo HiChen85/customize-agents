@@ -64,3 +64,15 @@ type ToolDef struct {
 	Description string          `json:"description"`
 	InputSchema json.RawMessage `json:"input_schema"`
 }
+
+type StreamEvent struct {
+	Type    string        // "text_delta", "tool_use", "error", "done"
+	Text    string        // populated for text_delta
+	ToolUse *ToolUseBlock // populated for tool_use (complete block)
+	Error   error         // populated for error type
+}
+
+type StreamProvider interface {
+	Provider
+	CreateMessageStream(ctx context.Context, req Request) (<-chan StreamEvent, error)
+}
