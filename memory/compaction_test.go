@@ -3,6 +3,7 @@ package memory
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/haichen-zhang/customize-agents/llm"
@@ -81,4 +82,81 @@ func (m *mockCompactionProvider) CreateMessage(ctx context.Context, req llm.Requ
 	return &llm.Response{
 		Content: []llm.Block{llm.TextBlock{Text: m.response}},
 	}, nil
+}
+
+func TestWorkingMemory_CompactWithCompactor(t *testing.T) {
+	provider := &mockCompactionProvider{
+		response: "Summary of prior conversation.",
+	}
+
+	compactor := NewCompactor(CompactionConfig{
+		Threshold: 0.8,
+		Provider:  provider,
+	})
+
+	wm := NewWorkingMemory(100, &SimpleTokenizer{})
+	wm.SetCompactor(compactor)
+
+	for i := 0; i < 20; i++ {
+		wm.AppendWithContext(context.Background(), llm.Message{
+			Role:    "user",
+			Content: []llm.Block{llm.TextBlock{Text: fmt.Sprintf("Message number %d with some content to fill tokens", i)}},
+		})
+	}
+
+	messages := wm.GetMessages()
+	foundSummary := false
+	for _, msg := range messages {
+		for _, block := range msg.Content {
+			if tb, ok := block.(llm.TextBlock); ok {
+				if strings.Contains(tb.Text, "Summary of prior conversation") {
+					foundSummary = true
+				}
+			}
+		}
+	}
+
+	if !foundSummary {
+		t.Error("expected LLM-generated summary in compacted messages")
+	}
+}
+
+func TestWorkingMemory_CompactFallbackOnError(t *testing.T) {
+	provider := &mockCompactionProvider{
+		err: fmt.Errorf("network error"),
+	}
+
+	compactor := NewCompactor(CompactionConfig{
+		Threshold: 0.8,
+		Provider:  provider,
+	})
+
+	wm := NewWorkingMemory(100, &SimpleTokenizer{})
+	wm.SetCompactor(compactor)
+
+	for i := 0; i < 20; i++ {
+		wm.AppendWithContext(context.Background(), llm.Message{
+			Role:    "user",
+			Content: []llm.Block{llm.TextBlock{Text: fmt.Sprintf("Message %d filling up tokens here", i)}},
+		})
+	}
+
+	messages := wm.GetMessages()
+	if len(messages) == 0 {
+		t.Fatal("expected messages after fallback compaction")
+	}
+
+	foundFallback := false
+	for _, msg := range messages {
+		for _, block := range msg.Content {
+			if tb, ok := block.(llm.TextBlock); ok {
+				if strings.Contains(tb.Text, "messages summarized") {
+					foundFallback = true
+				}
+			}
+		}
+	}
+	if !foundFallback {
+		t.Error("expected fallback truncation summary when LLM fails")
+	}
 }

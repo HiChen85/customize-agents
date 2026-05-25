@@ -1,7 +1,9 @@
 package memory
 
 import (
+	"context"
 	"fmt"
+	"log/slog"
 
 	"github.com/haichen-zhang/customize-agents/llm"
 )
@@ -12,6 +14,7 @@ type WorkingMemory struct {
 	tokenCount int
 	tokenizer  Tokenizer
 	keepRecent int
+	compactor  *Compactor
 }
 
 func NewWorkingMemory(maxTokens int, tokenizer Tokenizer) *WorkingMemory {
@@ -21,6 +24,25 @@ func NewWorkingMemory(maxTokens int, tokenizer Tokenizer) *WorkingMemory {
 		tokenCount: 0,
 		tokenizer:  tokenizer,
 		keepRecent: 10,
+	}
+}
+
+func (wm *WorkingMemory) SetCompactor(c *Compactor) {
+	wm.compactor = c
+}
+
+func (wm *WorkingMemory) AppendWithContext(ctx context.Context, msg llm.Message) {
+	tokens := wm.countMessage(msg)
+	wm.messages = append(wm.messages, msg)
+	wm.tokenCount += tokens
+
+	threshold := wm.maxTokens
+	if wm.compactor != nil {
+		threshold = int(float64(wm.maxTokens) * wm.compactor.Threshold())
+	}
+
+	if wm.tokenCount > threshold {
+		wm.compactWithContext(ctx)
 	}
 }
 
@@ -54,6 +76,10 @@ func (wm *WorkingMemory) Clear() {
 }
 
 func (wm *WorkingMemory) compact() {
+	wm.compactWithContext(context.Background())
+}
+
+func (wm *WorkingMemory) compactWithContext(ctx context.Context) {
 	if len(wm.messages) <= wm.keepRecent {
 		return
 	}
@@ -64,7 +90,18 @@ func (wm *WorkingMemory) compact() {
 	}
 
 	oldMessages := wm.messages[:len(wm.messages)-keep]
-	summary := wm.summarizeMessages(oldMessages)
+
+	var summary string
+	if wm.compactor != nil {
+		var err error
+		summary, err = wm.compactor.Summarize(ctx, oldMessages)
+		if err != nil || summary == "" {
+			slog.Warn("LLM compaction failed, using fallback", "error", err)
+			summary = wm.summarizeMessages(oldMessages)
+		}
+	} else {
+		summary = wm.summarizeMessages(oldMessages)
+	}
 
 	summaryMsg := llm.Message{
 		Role:    "user",
