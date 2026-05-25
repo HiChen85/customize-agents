@@ -114,6 +114,9 @@ func main() {
 		agent.SetHookRegistry(hookRegistry)
 	}
 
+	lc := core.NewLifecycle()
+	agent.SetLifecycle(lc)
+
 	if len(cfg.MCP.Servers) > 0 {
 		mcpMgr := mcp.NewMCPManager()
 		if err := mcpMgr.Initialize(context.Background(), cfg.MCP.Servers); err != nil {
@@ -191,6 +194,8 @@ func handleCommand(agent *core.Agent, allSkills []*skill.Skill, mm *memory.Memor
 		fmt.Println("  /skill activate <name>  - Activate a skill")
 		fmt.Println("  /memory search <query>  - Search long-term memory")
 		fmt.Println("  /status                 - Show context window usage")
+		fmt.Println("  /pause                  - Pause the agent")
+		fmt.Println("  /resume                 - Resume the agent")
 		fmt.Println("  /quit                   - Exit")
 
 	case "/skill":
@@ -250,6 +255,20 @@ func handleCommand(agent *core.Agent, allSkills []*skill.Skill, mm *memory.Memor
 	case "/status":
 		used, max := mm.TokenUsage()
 		fmt.Printf("Context: %d / %d tokens (%.1f%%)\n", used, max, float64(used)/float64(max)*100)
+
+	case "/pause":
+		if err := agent.Lifecycle().Pause(); err != nil {
+			fmt.Printf("Error: %v\n", err)
+		} else {
+			fmt.Println("Agent paused. Type /resume to continue.")
+		}
+
+	case "/resume":
+		if err := agent.Lifecycle().Resume(); err != nil {
+			fmt.Printf("Error: %v\n", err)
+		} else {
+			fmt.Println("Agent resumed.")
+		}
 
 	case "/quit":
 		fmt.Println("Goodbye!")

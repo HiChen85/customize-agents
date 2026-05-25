@@ -14,6 +14,10 @@ type HookConfig struct {
 	CanAbort bool          `yaml:"can_abort"`
 }
 
+type LifecycleConfig struct {
+	ShutdownTimeout time.Duration `yaml:"shutdown_timeout"`
+}
+
 type Config struct {
 	Providers      map[string]ProviderConfig `yaml:"providers"`
 	ActiveProvider string                    `yaml:"active_provider"`
@@ -25,6 +29,7 @@ type Config struct {
 	Server         ServerConfig              `yaml:"server"`
 	MCP            MCPConfig                 `yaml:"mcp"`
 	Hooks          map[string][]HookConfig   `yaml:"hooks"`
+	Lifecycle      LifecycleConfig           `yaml:"lifecycle"`
 }
 
 type ProviderConfig struct {
@@ -81,6 +86,9 @@ func Load(path string) (*Config, error) {
 	}
 	if cfg.SkillsDir == "" {
 		cfg.SkillsDir = "./skills"
+	}
+	if cfg.Lifecycle.ShutdownTimeout <= 0 {
+		cfg.Lifecycle.ShutdownTimeout = 30 * time.Second
 	}
 
 	return &cfg, nil
