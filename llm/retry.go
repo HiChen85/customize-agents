@@ -67,6 +67,53 @@ func (r *RetryProvider) backoffDelay(attempt int) time.Duration {
 	return time.Duration(delay)
 }
 
+func (r *RetryProvider) CreateMessageStream(ctx context.Context, req Request) (<-chan StreamEvent, error) {
+	sp, ok := r.inner.(StreamProvider)
+	if !ok {
+		return r.fallbackStream(ctx, req)
+	}
+
+	var lastErr error
+	for attempt := 0; attempt <= r.config.MaxRetries; attempt++ {
+		if attempt > 0 {
+			delay := r.backoffDelay(attempt)
+			select {
+			case <-ctx.Done():
+				return nil, fmt.Errorf("context cancelled during retry: %w (last error: %v)", ctx.Err(), lastErr)
+			case <-time.After(delay):
+			}
+		}
+		ch, err := sp.CreateMessageStream(ctx, req)
+		if err == nil {
+			return ch, nil
+		}
+		lastErr = err
+		if !r.config.RetryableFunc(err) {
+			return nil, err
+		}
+	}
+	return nil, fmt.Errorf("exhausted %d retries: %w", r.config.MaxRetries, lastErr)
+}
+
+func (r *RetryProvider) fallbackStream(ctx context.Context, req Request) (<-chan StreamEvent, error) {
+	resp, err := r.CreateMessage(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+
+	ch := make(chan StreamEvent, len(resp.Content)+1)
+	for _, block := range resp.Content {
+		if tb, ok := block.(TextBlock); ok {
+			ch <- StreamEvent{Type: "text_delta", Text: tb.Text}
+		} else if tu, ok := block.(ToolUseBlock); ok {
+			ch <- StreamEvent{Type: "tool_use", ToolUse: &tu}
+		}
+	}
+	ch <- StreamEvent{Type: "done"}
+	close(ch)
+	return ch, nil
+}
+
 func DefaultRetryable(err error) bool {
 	msg := err.Error()
 	if strings.Contains(msg, "status 429") || strings.Contains(msg, "status 529") {
