@@ -150,16 +150,17 @@ func (p *AnthropicProvider) parseSSEStream(ctx context.Context, body io.ReadClos
 			if currentTool != nil {
 				inputJSON := currentTool.InputJSON.String()
 				if inputJSON == "" {
-					slog.Warn("tool input JSON is empty, defaulting to {}", "tool", currentTool.Name, "raw_lines_count", len(currentTool.RawLines))
-					for i, rl := range currentTool.RawLines {
-						if i < 10 {
-							slog.Warn("  raw SSE line", "index", i, "data", rl)
-						}
-					}
+					slog.Warn("tool input JSON is empty, defaulting to {}", "tool", currentTool.Name)
 					inputJSON = "{}"
 				} else if !json.Valid([]byte(inputJSON)) {
-					slog.Warn("tool input JSON is invalid, defaulting to {}", "tool", currentTool.Name, "raw", inputJSON)
-					inputJSON = "{}"
+					repaired := repairTruncatedJSON(inputJSON)
+					if repaired != "" {
+						slog.Warn("tool input JSON was truncated, repaired", "tool", currentTool.Name, "original_len", len(inputJSON))
+						inputJSON = repaired
+					} else {
+						slog.Warn("tool input JSON is invalid and unrepairable", "tool", currentTool.Name, "len", len(inputJSON))
+						inputJSON = "{}"
+					}
 				}
 				ch <- StreamEvent{
 					Type: "tool_use",
@@ -203,4 +204,114 @@ func (p *AnthropicProvider) parseSSEStream(ctx context.Context, body io.ReadClos
 	if err := scanner.Err(); err != nil {
 		ch <- StreamEvent{Type: "error", Error: fmt.Errorf("stream read error: %w", err)}
 	}
+}
+
+// repairTruncatedJSON attempts to recover key-value pairs from truncated JSON.
+// When LLM output hits token limit mid-stream, the tool input JSON is incomplete.
+// This extracts whatever complete string fields exist from the beginning.
+func repairTruncatedJSON(raw string) string {
+	if !strings.HasPrefix(raw, "{") {
+		return ""
+	}
+
+	result := make(map[string]string)
+	remaining := raw[1:] // skip opening brace
+
+	for {
+		remaining = strings.TrimSpace(remaining)
+		if remaining == "" || remaining[0] == '}' {
+			break
+		}
+		if remaining[0] == ',' {
+			remaining = remaining[1:]
+			remaining = strings.TrimSpace(remaining)
+		}
+
+		// expect a key: "key"
+		if remaining[0] != '"' {
+			break
+		}
+		keyEnd := findClosingQuote(remaining, 0)
+		if keyEnd < 0 {
+			break
+		}
+		key := remaining[1:keyEnd]
+		remaining = remaining[keyEnd+1:]
+
+		// expect colon
+		remaining = strings.TrimSpace(remaining)
+		if len(remaining) == 0 || remaining[0] != ':' {
+			break
+		}
+		remaining = strings.TrimSpace(remaining[1:])
+
+		// expect value (we only handle string values)
+		if len(remaining) == 0 {
+			break
+		}
+		if remaining[0] != '"' {
+			// non-string value (number, bool, etc) — skip to next comma or end
+			nextComma := strings.IndexByte(remaining, ',')
+			nextBrace := strings.IndexByte(remaining, '}')
+			if nextComma >= 0 {
+				val := strings.TrimSpace(remaining[:nextComma])
+				result[key] = val
+				remaining = remaining[nextComma:]
+			} else if nextBrace >= 0 {
+				val := strings.TrimSpace(remaining[:nextBrace])
+				result[key] = val
+				remaining = remaining[nextBrace:]
+			} else {
+				break
+			}
+			continue
+		}
+
+		valEnd := findClosingQuote(remaining, 0)
+		if valEnd < 0 {
+			// String value is truncated — take what we have
+			// The value started but never closed. Extract partial content.
+			partial := remaining[1:]
+			// Unescape what we can
+			partial = strings.ReplaceAll(partial, "\\n", "\n")
+			partial = strings.ReplaceAll(partial, "\\\"", "\"")
+			partial = strings.ReplaceAll(partial, "\\\\", "\\")
+			result[key] = partial + "\n[TRUNCATED - output token limit reached]"
+			break
+		}
+		value := remaining[1:valEnd]
+		value = strings.ReplaceAll(value, "\\n", "\n")
+		value = strings.ReplaceAll(value, "\\\"", "\"")
+		value = strings.ReplaceAll(value, "\\\\", "\\")
+		result[key] = value
+		remaining = remaining[valEnd+1:]
+	}
+
+	if len(result) == 0 {
+		return ""
+	}
+
+	// Rebuild as valid JSON
+	repaired, err := json.Marshal(result)
+	if err != nil {
+		return ""
+	}
+	return string(repaired)
+}
+
+// findClosingQuote finds the index of the closing quote for a JSON string starting at pos.
+// Returns -1 if not found.
+func findClosingQuote(s string, pos int) int {
+	i := pos + 1
+	for i < len(s) {
+		if s[i] == '\\' {
+			i += 2
+			continue
+		}
+		if s[i] == '"' {
+			return i
+		}
+		i++
+	}
+	return -1
 }
