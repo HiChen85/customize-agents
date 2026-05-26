@@ -319,6 +319,7 @@ func (m AppModel) handleCommand(input string) (tea.Model, tea.Cmd) {
 	switch cmd {
 	case "/help":
 		help := "Commands:\n" +
+			"  /tools                  - List available tools\n" +
 			"  /skill list             - List available skills\n" +
 			"  /skill activate <name>  - Activate a skill\n" +
 			"  /memory search <query>  - Search long-term memory\n" +
@@ -328,6 +329,19 @@ func (m AppModel) handleCommand(input string) (tea.Model, tea.Cmd) {
 			"  /clear                  - Clear conversation\n" +
 			"  /quit                   - Exit"
 		m.chatView.AppendItem(&SystemMessage{Text: help})
+
+	case "/tools":
+		if m.agent == nil {
+			m.chatView.AppendItem(&ErrorMessage{Text: "no agent available"})
+			return m, nil
+		}
+		tools := m.agent.Tools()
+		var sb strings.Builder
+		sb.WriteString(fmt.Sprintf("Available tools (%d):\n", len(tools)))
+		for _, t := range tools {
+			sb.WriteString(fmt.Sprintf("  - %s: %s\n", t.Definition.Name, t.Definition.Description))
+		}
+		m.chatView.AppendItem(&SystemMessage{Text: sb.String()})
 
 	case "/skill":
 		if len(parts) < 2 {

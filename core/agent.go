@@ -354,6 +354,7 @@ func (a *Agent) AddTools(tools ...Tool) {
 	a.tools = append(a.tools, tools...)
 }
 
+func (a *Agent) Tools() []Tool                       { return a.tools }
 func (a *Agent) SkillRegistry() *skill.SkillRegistry { return a.skillRegistry }
 
 func extractToolUse(blocks []llm.Block) []llm.ToolUseBlock {
