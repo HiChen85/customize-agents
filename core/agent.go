@@ -35,8 +35,8 @@ func NewAgent(provider llm.Provider, mm *memory.MemoryManager, tools []Tool, reg
 }
 
 func (a *Agent) SetHookRegistry(r *HookRegistry) { a.hooks = r }
-func (a *Agent) SetLifecycle(l *Lifecycle)        { a.lifecycle = l }
-func (a *Agent) Lifecycle() *Lifecycle             { return a.lifecycle }
+func (a *Agent) SetLifecycle(l *Lifecycle)       { a.lifecycle = l }
+func (a *Agent) Lifecycle() *Lifecycle           { return a.lifecycle }
 
 func (a *Agent) checkPausePoint(ctx context.Context) error {
 	if a.lifecycle == nil {
@@ -184,6 +184,10 @@ func (a *Agent) RunStream(ctx context.Context, userInput string, onEvent func(ll
 					toolCalls = append(toolCalls, *event.ToolUse)
 					blocks = append(blocks, *event.ToolUse)
 				}
+			case "thinking":
+				if event.Thinking != nil {
+					blocks = append(blocks, *event.Thinking)
+				}
 			case "error":
 				a.fireHook(ctx, HookPayload{Event: OnError, Error: event.Error})
 				return fullText.String(), event.Error
@@ -193,7 +197,17 @@ func (a *Agent) RunStream(ctx context.Context, userInput string, onEvent func(ll
 		duration := time.Since(start)
 
 		if fullText.Len() > 0 {
-			blocks = append([]llm.Block{llm.TextBlock{Text: fullText.String()}}, blocks...)
+			// Insert text block after any thinking blocks but before tool_use blocks
+			textBlock := llm.TextBlock{Text: fullText.String()}
+			insertIdx := 0
+			for i, b := range blocks {
+				if _, ok := b.(llm.ThinkingBlock); ok {
+					insertIdx = i + 1
+				} else {
+					break
+				}
+			}
+			blocks = append(blocks[:insertIdx], append([]llm.Block{textBlock}, blocks[insertIdx:]...)...)
 		}
 
 		resp := &llm.Response{Content: blocks}

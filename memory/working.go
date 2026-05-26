@@ -139,6 +139,8 @@ func (wm *WorkingMemory) countMessage(msg llm.Message) int {
 	total := wm.tokenizer.Count(msg.Role)
 	for _, block := range msg.Content {
 		switch b := block.(type) {
+		case llm.ThinkingBlock:
+			total += wm.tokenizer.Count(b.Thinking)
 		case llm.TextBlock:
 			total += wm.tokenizer.Count(b.Text)
 		case llm.ToolUseBlock:

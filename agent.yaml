@@ -2,9 +2,12 @@ providers:
   anthropic:
     api_key: "${ANTHROPIC_API_KEY}"
     base_url: "https://api.anthropic.com"
+  deepseek:
+    api_key: "${DEEPSEEK_API_KEY}"
+    base_url: "https://api.deepseek.com/anthropic"
 
-active_provider: anthropic
-model: claude-sonnet-4-20250514
+active_provider: deepseek
+model: deepseek-v4-pro
 max_tokens: 4096
 
 skills_dir: "./skills"

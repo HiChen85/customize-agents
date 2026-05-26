@@ -65,6 +65,8 @@ func (p *AnthropicProvider) buildRequestBody(req Request) map[string]any {
 		content := make([]map[string]any, 0, len(msg.Content))
 		for _, block := range msg.Content {
 			switch b := block.(type) {
+			case ThinkingBlock:
+				content = append(content, map[string]any{"type": "thinking", "thinking": b.Thinking})
 			case TextBlock:
 				content = append(content, map[string]any{"type": "text", "text": b.Text})
 			case ToolUseBlock:
@@ -127,6 +129,12 @@ func (p *AnthropicProvider) parseResponse(data []byte) (*Response, error) {
 		}
 
 		switch blockType.Type {
+		case "thinking":
+			var tb struct {
+				Thinking string `json:"thinking"`
+			}
+			json.Unmarshal(rawBlock, &tb)
+			blocks = append(blocks, ThinkingBlock{Thinking: tb.Thinking})
 		case "text":
 			var tb struct {
 				Text string `json:"text"`

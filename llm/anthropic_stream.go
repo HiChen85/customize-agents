@@ -57,6 +57,7 @@ func (p *AnthropicProvider) parseSSEStream(ctx context.Context, body io.ReadClos
 	}
 
 	var currentTool *toolBuffer
+	var currentThinking *strings.Builder
 
 	for scanner.Scan() {
 		select {
@@ -86,6 +87,7 @@ func (p *AnthropicProvider) parseSSEStream(ctx context.Context, body io.ReadClos
 			Delta struct {
 				Type        string `json:"type"`
 				Text        string `json:"text"`
+				Thinking    string `json:"thinking"`
 				PartialJSON string `json:"partial_json"`
 				StopReason  string `json:"stop_reason"`
 			} `json:"delta"`
@@ -102,6 +104,8 @@ func (p *AnthropicProvider) parseSSEStream(ctx context.Context, body io.ReadClos
 					ID:   event.ContentBlock.ID,
 					Name: event.ContentBlock.Name,
 				}
+			} else if event.ContentBlock.Type == "thinking" {
+				currentThinking = &strings.Builder{}
 			}
 
 		case "content_block_delta":
@@ -109,6 +113,8 @@ func (p *AnthropicProvider) parseSSEStream(ctx context.Context, body io.ReadClos
 				ch <- StreamEvent{Type: "text_delta", Text: event.Delta.Text}
 			} else if event.Delta.Type == "input_json_delta" && currentTool != nil {
 				currentTool.InputJSON.WriteString(event.Delta.PartialJSON)
+			} else if event.Delta.Type == "thinking_delta" && currentThinking != nil {
+				currentThinking.WriteString(event.Delta.Thinking)
 			}
 
 		case "content_block_stop":
@@ -126,6 +132,12 @@ func (p *AnthropicProvider) parseSSEStream(ctx context.Context, body io.ReadClos
 					},
 				}
 				currentTool = nil
+			} else if currentThinking != nil {
+				ch <- StreamEvent{
+					Type:     "thinking",
+					Thinking: &ThinkingBlock{Thinking: currentThinking.String()},
+				}
+				currentThinking = nil
 			}
 
 		case "message_stop":

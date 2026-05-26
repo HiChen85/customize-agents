@@ -59,6 +59,12 @@ type ToolResultBlock struct {
 
 func (ToolResultBlock) blockType() string { return "tool_result" }
 
+type ThinkingBlock struct {
+	Thinking string
+}
+
+func (ThinkingBlock) blockType() string { return "thinking" }
+
 type ToolDef struct {
 	Name        string          `json:"name"`
 	Description string          `json:"description"`
@@ -66,10 +72,11 @@ type ToolDef struct {
 }
 
 type StreamEvent struct {
-	Type    string        // "text_delta", "tool_use", "error", "done"
-	Text    string        // populated for text_delta
-	ToolUse *ToolUseBlock // populated for tool_use (complete block)
-	Error   error         // populated for error type
+	Type     string         // "text_delta", "tool_use", "thinking", "error", "done"
+	Text     string         // populated for text_delta
+	ToolUse  *ToolUseBlock  // populated for tool_use (complete block)
+	Thinking *ThinkingBlock // populated for thinking (complete block)
+	Error    error          // populated for error type
 }
 
 type StreamProvider interface {
