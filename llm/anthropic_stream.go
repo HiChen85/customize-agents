@@ -55,6 +55,7 @@ func (p *AnthropicProvider) parseSSEStream(ctx context.Context, body io.ReadClos
 		ID        string
 		Name      string
 		InputJSON strings.Builder
+		RawLines  []string
 	}
 
 	var currentTool *toolBuffer
@@ -75,6 +76,10 @@ func (p *AnthropicProvider) parseSSEStream(ctx context.Context, body io.ReadClos
 		}
 
 		data := strings.TrimPrefix(line, "data: ")
+
+		if currentTool != nil {
+			currentTool.RawLines = append(currentTool.RawLines, data)
+		}
 
 		var event struct {
 			Type         string `json:"type"`
@@ -144,7 +149,12 @@ func (p *AnthropicProvider) parseSSEStream(ctx context.Context, body io.ReadClos
 			if currentTool != nil {
 				inputJSON := currentTool.InputJSON.String()
 				if inputJSON == "" {
-					slog.Warn("tool input JSON is empty, defaulting to {}", "tool", currentTool.Name)
+					slog.Warn("tool input JSON is empty, defaulting to {}", "tool", currentTool.Name, "raw_lines_count", len(currentTool.RawLines))
+					for i, rl := range currentTool.RawLines {
+						if i < 10 {
+							slog.Warn("  raw SSE line", "index", i, "data", rl)
+						}
+					}
 					inputJSON = "{}"
 				} else if !json.Valid([]byte(inputJSON)) {
 					slog.Warn("tool input JSON is invalid, defaulting to {}", "tool", currentTool.Name, "raw", inputJSON)
