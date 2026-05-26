@@ -57,10 +57,13 @@ func NewReadFileTool() Tool {
 			if err := json.Unmarshal(input, &params); err != nil {
 				return "", fmt.Errorf("parse input: %w", err)
 			}
+			if params.Path == "" {
+				return "", fmt.Errorf("path is required and cannot be empty")
+			}
 
 			data, err := os.ReadFile(params.Path)
 			if err != nil {
-				return "", fmt.Errorf("read file: %w", err)
+				return "", fmt.Errorf("read file %s: %w", params.Path, err)
 			}
 			return string(data), nil
 		},

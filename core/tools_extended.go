@@ -236,14 +236,20 @@ func NewWriteFileTool() Tool {
 			if err := json.Unmarshal(input, &params); err != nil {
 				return "", fmt.Errorf("parse input: %w", err)
 			}
+			if params.Path == "" {
+				return "", fmt.Errorf("path is required and cannot be empty")
+			}
+			if !filepath.IsAbs(params.Path) {
+				return "", fmt.Errorf("path must be absolute, got: %q", params.Path)
+			}
 
 			dir := filepath.Dir(params.Path)
 			if err := os.MkdirAll(dir, 0755); err != nil {
-				return "", fmt.Errorf("create directory: %w", err)
+				return "", fmt.Errorf("create directory %s: %w", dir, err)
 			}
 
 			if err := os.WriteFile(params.Path, []byte(params.Content), 0644); err != nil {
-				return "", fmt.Errorf("write file: %w", err)
+				return "", fmt.Errorf("write file %s: %w", params.Path, err)
 			}
 
 			info, _ := os.Stat(params.Path)
