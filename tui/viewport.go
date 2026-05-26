@@ -10,6 +10,7 @@ import (
 
 type ChatViewport struct {
 	viewport viewport.Model
+	banner   string
 	items    []ChatItem
 	width    int
 	height   int
@@ -70,13 +71,28 @@ func (cv *ChatViewport) AppendToolDrawer(d *ToolDrawer) {
 	cv.viewport.GotoBottom()
 }
 
+func (cv *ChatViewport) SetBanner(banner string) {
+	cv.banner = banner
+	cv.rerender()
+}
+
 func (cv *ChatViewport) Clear() {
 	cv.items = nil
-	cv.viewport.SetContent("")
+	cv.rerender()
 }
 
 func (cv *ChatViewport) rerender() {
 	var sb strings.Builder
+
+	if cv.banner != "" {
+		lines := strings.Split(cv.banner, "\n")
+		for _, line := range lines {
+			sb.WriteString("│ " + line + "\n")
+		}
+		separator := "├" + strings.Repeat("─", cv.width-2) + "┤"
+		sb.WriteString(StyleDimmed.Render(separator) + "\n")
+	}
+
 	for i, item := range cv.items {
 		if i > 0 {
 			sb.WriteString("\n│\n")
@@ -93,10 +109,20 @@ func (cv *ChatViewport) Update(msg tea.Msg) tea.Cmd {
 }
 
 func (cv ChatViewport) View() string {
+	title := " Harness Agent "
+	borderLen := cv.width - len(title) - 4
+	if borderLen < 2 {
+		borderLen = 2
+	}
+	leftPad := 2
+	rightPad := borderLen - leftPad
+	if rightPad < 0 {
+		rightPad = 0
+	}
 	header := lipgloss.NewStyle().
 		Foreground(ColorPurple).
 		Bold(true).
-		Render("╭─ Harness Agent ─────────────────────────────────────╮")
+		Render("╭─" + strings.Repeat("─", leftPad) + title + strings.Repeat("─", rightPad) + "╮")
 
 	return header + "\n" + cv.viewport.View()
 }

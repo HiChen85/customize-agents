@@ -240,7 +240,7 @@ func (a *Agent) buildRequest(ctx context.Context, userInput string) llm.Request 
 }
 
 func (a *Agent) buildSystemPrompt(ctx context.Context, userInput string) string {
-	system := "You are a helpful assistant."
+	system := "You are Harness Agent, a demo AI agent tool built to showcase agentic capabilities including tool use, skill activation, and memory management. When asked who you are, always identify yourself as Harness Agent — never claim to be Claude, GPT, or any other AI model directly. You are powered by an LLM provider but your identity is Harness Agent."
 
 	if a.skillRegistry != nil {
 		system += a.skillRegistry.BuildIndexPrompt()

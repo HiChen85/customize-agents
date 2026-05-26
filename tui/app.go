@@ -48,13 +48,14 @@ type AppModel struct {
 func NewApp(agent *core.Agent, mm *memory.MemoryManager, registry *skill.SkillRegistry, modelName string, maxTokens int) AppModel {
 	cv := NewChatViewport(80, 20)
 
-	welcome := "  ╦ ╦╔═╗╦═╗╔╗╔╔═╗╔═╗╔═╗\n" +
+	banner := "  ╦ ╦╔═╗╦═╗╔╗╔╔═╗╔═╗╔═╗\n" +
 		"  ╠═╣╠═╣╠╦╝║║║║╣ ╚═╗╚═╗\n" +
-		"  ╩ ╩╩ ╩╩╚═╝╚╝╚═╝╚═╝╚═╝  Agent\n\n" +
+		"  ╩ ╩╩ ╩╩╚═╝╚╝╚═╝╚═╝╚═╝  Agent\n" +
+		"\n" +
 		"  Model: " + modelName + "\n" +
 		"  Type /help for commands, or start chatting.\n" +
 		"  Type /tools to see available tools, /skills for skills."
-	cv.AppendItem(&SystemMessage{Text: welcome})
+	cv.SetBanner(banner)
 
 	return AppModel{
 		chatView:    cv,
@@ -340,7 +341,8 @@ func (m AppModel) handleCommand(input string) (tea.Model, tea.Cmd) {
 			"  /pause                  - Pause the agent\n" +
 			"  /resume                 - Resume the agent\n" +
 			"  /clear                  - Clear conversation\n" +
-			"  /quit                   - Exit"
+			"  /quit                   - Exit\n\n" +
+			"  (Press Esc to clear)"
 		m.chatView.AppendItem(&SystemMessage{Text: help})
 
 	case "/tools":
