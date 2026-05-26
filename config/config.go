@@ -116,9 +116,6 @@ func Load(path string) (*Config, error) {
 	if cfg.Memory.Compaction.Threshold <= 0 {
 		cfg.Memory.Compaction.Threshold = 0.8
 	}
-	if cfg.SkillsDir == "" {
-		cfg.SkillsDir = "./skills"
-	}
 	if cfg.Skills.ProjectDir == "" {
 		if cfg.SkillsDir != "" {
 			cfg.Skills.ProjectDir = cfg.SkillsDir

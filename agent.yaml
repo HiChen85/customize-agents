@@ -10,7 +10,8 @@ active_provider: deepseek
 model: deepseek-v4-pro
 max_tokens: 4096
 
-skills_dir: "./skills"
+skills:
+  project_dir: "./.agent/skills"
 active_skills: []
 
 memory:
