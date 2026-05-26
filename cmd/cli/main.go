@@ -1,11 +1,9 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"flag"
-	"fmt"
 	"log/slog"
 	"os"
 	"strings"
@@ -17,6 +15,7 @@ import (
 	"github.com/HiChen85/customize-agents/mcp"
 	"github.com/HiChen85/customize-agents/memory"
 	"github.com/HiChen85/customize-agents/skill"
+	"github.com/HiChen85/customize-agents/tui"
 )
 
 func main() {
@@ -122,21 +121,9 @@ func main() {
 	agent.SetPermissionHandler(core.NewPermissionHandler(core.PermissionConfig{
 		AutoApprove: []string{"read_file", "list_dir", "grep", "web_search", "web_fetch", "memory_save", "memory_search", "memory_context"},
 		PromptFunc: func(toolName string, input json.RawMessage) bool {
-			fmt.Printf("[Permission] Tool '%s' wants to execute. Allow? (y/n): ", toolName)
-			var answer string
-			fmt.Scanln(&answer)
-			return answer == "y" || answer == "Y"
+			return true
 		},
 	}))
-
-	if cfg.Hooks != nil {
-		hookRegistry := core.NewHookRegistry()
-		if err := hookRegistry.LoadFromConfig(cfg.Hooks); err != nil {
-			slog.Error("failed to load hooks config", "error", err)
-			os.Exit(1)
-		}
-		agent.SetHookRegistry(hookRegistry)
-	}
 
 	lc := core.NewLifecycle()
 	agent.SetLifecycle(lc)
@@ -155,147 +142,10 @@ func main() {
 		}
 		mcpTools := mcpMgr.GetTools(existingTools)
 		agent.AddTools(mcpTools...)
-
-		if len(mcpTools) > 0 {
-			names := make([]string, 0, len(mcpTools))
-			for _, t := range mcpTools {
-				names = append(names, t.Definition.Name)
-			}
-			fmt.Printf("MCP tools: %s\n", strings.Join(names, ", "))
-		}
 	}
 
-	fmt.Println("Agent ready. Type /help for commands, or start chatting.")
-	fmt.Printf("Provider: %s | Model: %s\n", cfg.ActiveProvider, cfg.Model)
-	if active := registry.ActiveSkills(); len(active) > 0 {
-		names := make([]string, 0, len(active))
-		for _, s := range active {
-			names = append(names, s.Name)
-		}
-		fmt.Printf("Active skills: %s\n", strings.Join(names, ", "))
-	}
-	fmt.Println()
-
-	ctx := context.Background()
-	scanner := bufio.NewScanner(os.Stdin)
-	fmt.Print("> ")
-	for scanner.Scan() {
-		input := strings.TrimSpace(scanner.Text())
-		if input == "" {
-			fmt.Print("> ")
-			continue
-		}
-
-		if strings.HasPrefix(input, "/") {
-			handleCommand(agent, mm, input)
-			fmt.Print("> ")
-			continue
-		}
-
-		onEvent := func(event llm.StreamEvent) {
-			if event.Type == "text_delta" {
-				fmt.Print(event.Text)
-			}
-		}
-		_, err := agent.RunStream(ctx, input, onEvent)
-		if err != nil {
-			fmt.Printf("\nError: %v\n", err)
-		} else {
-			fmt.Println()
-		}
-		fmt.Print("> ")
-	}
-}
-
-func handleCommand(agent *core.Agent, mm *memory.MemoryManager, input string) {
-	parts := strings.Fields(input)
-	cmd := parts[0]
-
-	switch cmd {
-	case "/help":
-		fmt.Println("Commands:")
-		fmt.Println("  /skill list             - List available skills")
-		fmt.Println("  /skill activate <name>  - Activate a skill")
-		fmt.Println("  /memory search <query>  - Search long-term memory")
-		fmt.Println("  /status                 - Show context window usage")
-		fmt.Println("  /pause                  - Pause the agent")
-		fmt.Println("  /resume                 - Resume the agent")
-		fmt.Println("  /quit                   - Exit")
-
-	case "/skill":
-		if len(parts) < 2 {
-			fmt.Println("Usage: /skill list | /skill activate <name>")
-			return
-		}
-		switch parts[1] {
-		case "list":
-			fmt.Println("Available skills:")
-			index := agent.SkillRegistry().GetIndex()
-			for _, idx := range index {
-				active := ""
-				if agent.SkillRegistry().IsActive(idx.Name) {
-					active = " [active]"
-				}
-				fmt.Printf("  - %s: %s%s\n", idx.Name, idx.Description, active)
-			}
-		case "activate":
-			if len(parts) < 3 {
-				fmt.Println("Usage: /skill activate <name>")
-				return
-			}
-			name := parts[2]
-			s, err := agent.SkillRegistry().Activate(name)
-			if err != nil {
-				fmt.Printf("Error: %v\n", err)
-				return
-			}
-			fmt.Printf("Activated skill: %s\n", s.Name)
-		}
-
-	case "/memory":
-		if len(parts) < 3 {
-			fmt.Println("Usage: /memory search <query>")
-			return
-		}
-		if parts[1] == "search" {
-			query := strings.Join(parts[2:], " ")
-			entries, err := mm.RetrieveRelevant(context.Background(), query, 5)
-			if err != nil {
-				fmt.Printf("Error: %v\n", err)
-				return
-			}
-			if len(entries) == 0 {
-				fmt.Println("No memories found.")
-				return
-			}
-			for _, e := range entries {
-				fmt.Printf("  [%s] %s (tags: %s)\n", e.ID, e.Content, strings.Join(e.Tags, ", "))
-			}
-		}
-
-	case "/status":
-		used, max := mm.TokenUsage()
-		fmt.Printf("Context: %d / %d tokens (%.1f%%)\n", used, max, float64(used)/float64(max)*100)
-
-	case "/pause":
-		if err := agent.Lifecycle().Pause(); err != nil {
-			fmt.Printf("Error: %v\n", err)
-		} else {
-			fmt.Println("Agent paused. Type /resume to continue.")
-		}
-
-	case "/resume":
-		if err := agent.Lifecycle().Resume(); err != nil {
-			fmt.Printf("Error: %v\n", err)
-		} else {
-			fmt.Println("Agent resumed.")
-		}
-
-	case "/quit":
-		fmt.Println("Goodbye!")
-		os.Exit(0)
-
-	default:
-		fmt.Printf("Unknown command: %s (type /help for commands)\n", cmd)
+	if err := tui.Run(agent, mm, registry, cfg.Model, cfg.MaxTokens); err != nil {
+		slog.Error("TUI error", "error", err)
+		os.Exit(1)
 	}
 }
