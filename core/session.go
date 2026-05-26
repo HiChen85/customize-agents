@@ -30,17 +30,17 @@ type SessionConfig struct {
 }
 
 type SessionFactory struct {
-	Provider  llm.Provider
-	Tools     []Tool
-	Skills    []*skill.Skill
-	Store     memory.LongTermStore
-	Hooks     *HookRegistry
-	MaxTokens int
+	Provider      llm.Provider
+	Tools         []Tool
+	SkillRegistry *skill.SkillRegistry
+	Store         memory.LongTermStore
+	Hooks         *HookRegistry
+	MaxTokens     int
 }
 
 func (f *SessionFactory) Create(id string) *Session {
 	mm := memory.NewMemoryManager(f.Store, f.MaxTokens)
-	agent := NewAgent(f.Provider, mm, f.Tools, f.Skills)
+	agent := NewAgent(f.Provider, mm, f.Tools, f.SkillRegistry)
 	if f.Hooks != nil {
 		agent.SetHookRegistry(f.Hooks)
 	}

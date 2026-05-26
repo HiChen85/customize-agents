@@ -7,7 +7,6 @@ import (
 
 	"github.com/HiChen85/customize-agents/llm"
 	"github.com/HiChen85/customize-agents/memory"
-	"github.com/HiChen85/customize-agents/skill"
 )
 
 func TestIntegration_AgentWithMemoryAndSkills(t *testing.T) {
@@ -31,17 +30,12 @@ func TestIntegration_AgentWithMemoryAndSkills(t *testing.T) {
 		},
 	}
 
-	testSkill := &skill.Skill{
-		Name:   "helper",
-		Prompt: "Remember user preferences when they share them.",
-	}
-
 	tools := []Tool{
 		NewMemorySaveTool(store),
 		NewMemorySearchTool(store),
 	}
 
-	agent := NewAgent(provider, mm, tools, []*skill.Skill{testSkill})
+	agent := NewAgent(provider, mm, tools, nil)
 
 	reply, err := agent.Run(context.Background(), "I prefer Go over Python")
 	if err != nil {

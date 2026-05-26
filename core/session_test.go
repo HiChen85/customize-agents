@@ -13,7 +13,6 @@ func TestSessionManager_GetOrCreate_NewSession(t *testing.T) {
 	factory := &SessionFactory{
 		Provider:  &mockSessionProv{},
 		Tools:     nil,
-		Skills:    nil,
 		Store:     &mockSessionStore{},
 		MaxTokens: 4096,
 	}

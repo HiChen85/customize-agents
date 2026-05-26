@@ -64,19 +64,18 @@ func main() {
 	})
 	mm.Working.SetCompactor(compactor)
 
-	allSkills, err := skill.LoadAllSkills(cfg.SkillsDir)
-	if err != nil {
-		slog.Warn("failed to load skills", "error", err)
+	registry := skill.NewSkillRegistry(cfg.Skills.ProjectDir, cfg.Skills.UserDir)
+	if err := registry.BuildIndex(); err != nil {
+		slog.Warn("failed to build skill index", "error", err)
 	}
 
-	var activeSkills []*skill.Skill
 	activeNames := cfg.ActiveSkills
 	if *skillsFlag != "" {
 		activeNames = strings.Split(*skillsFlag, ",")
 	}
 	for _, name := range activeNames {
-		if s := skill.FindSkillByName(allSkills, strings.TrimSpace(name)); s != nil {
-			activeSkills = append(activeSkills, s)
+		if _, err := registry.Activate(strings.TrimSpace(name)); err != nil {
+			slog.Warn("failed to pre-activate skill", "name", name, "error", err)
 		}
 	}
 
@@ -92,6 +91,7 @@ func main() {
 		core.NewMemorySaveTool(store),
 		core.NewMemorySearchTool(store),
 		core.NewMemoryContextTool(mm),
+		core.NewActivateSkillTool(registry),
 	}
 
 	var sandbox *core.Sandbox
@@ -111,7 +111,7 @@ func main() {
 		}
 	}
 
-	agent := core.NewAgent(llmProvider, mm, tools, activeSkills)
+	agent := core.NewAgent(llmProvider, mm, tools, registry)
 
 	agent.SetExecutor(core.NewToolExecutor(core.ExecutorConfig{
 		Timeout: 30 * time.Second, MaxRetries: 2, RetryDelay: 1 * time.Second,
@@ -167,9 +167,9 @@ func main() {
 
 	fmt.Println("Agent ready. Type /help for commands, or start chatting.")
 	fmt.Printf("Provider: %s | Model: %s\n", cfg.ActiveProvider, cfg.Model)
-	if len(activeSkills) > 0 {
-		names := make([]string, 0, len(activeSkills))
-		for _, s := range activeSkills {
+	if active := registry.ActiveSkills(); len(active) > 0 {
+		names := make([]string, 0, len(active))
+		for _, s := range active {
 			names = append(names, s.Name)
 		}
 		fmt.Printf("Active skills: %s\n", strings.Join(names, ", "))
@@ -187,7 +187,7 @@ func main() {
 		}
 
 		if strings.HasPrefix(input, "/") {
-			handleCommand(agent, allSkills, mm, input)
+			handleCommand(agent, mm, input)
 			fmt.Print("> ")
 			continue
 		}
@@ -207,7 +207,7 @@ func main() {
 	}
 }
 
-func handleCommand(agent *core.Agent, allSkills []*skill.Skill, mm *memory.MemoryManager, input string) {
+func handleCommand(agent *core.Agent, mm *memory.MemoryManager, input string) {
 	parts := strings.Fields(input)
 	cmd := parts[0]
 
@@ -230,15 +230,13 @@ func handleCommand(agent *core.Agent, allSkills []*skill.Skill, mm *memory.Memor
 		switch parts[1] {
 		case "list":
 			fmt.Println("Available skills:")
-			for _, s := range allSkills {
+			index := agent.SkillRegistry().GetIndex()
+			for _, idx := range index {
 				active := ""
-				for _, as := range agent.ActiveSkills() {
-					if as.Name == s.Name {
-						active = " [active]"
-						break
-					}
+				if agent.SkillRegistry().IsActive(idx.Name) {
+					active = " [active]"
 				}
-				fmt.Printf("  - %s: %s%s\n", s.Name, s.Description, active)
+				fmt.Printf("  - %s: %s%s\n", idx.Name, idx.Description, active)
 			}
 		case "activate":
 			if len(parts) < 3 {
@@ -246,12 +244,11 @@ func handleCommand(agent *core.Agent, allSkills []*skill.Skill, mm *memory.Memor
 				return
 			}
 			name := parts[2]
-			s := skill.FindSkillByName(allSkills, name)
-			if s == nil {
-				fmt.Printf("Skill '%s' not found\n", name)
+			s, err := agent.SkillRegistry().Activate(name)
+			if err != nil {
+				fmt.Printf("Error: %v\n", err)
 				return
 			}
-			agent.ActivateSkill(s)
 			fmt.Printf("Activated skill: %s\n", s.Name)
 		}
 

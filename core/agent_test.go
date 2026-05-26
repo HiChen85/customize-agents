@@ -7,7 +7,6 @@ import (
 
 	"github.com/HiChen85/customize-agents/llm"
 	"github.com/HiChen85/customize-agents/memory"
-	"github.com/HiChen85/customize-agents/skill"
 )
 
 type mockProvider struct {
@@ -113,12 +112,7 @@ func TestAgent_WithSkill(t *testing.T) {
 	store, _ := memory.NewFileStore(dir)
 	mm := memory.NewMemoryManager(store, 10000)
 
-	testSkill := &skill.Skill{
-		Name:   "test-skill",
-		Prompt: "You are a code reviewer.",
-	}
-
-	agent := NewAgent(provider, mm, nil, []*skill.Skill{testSkill})
+	agent := NewAgent(provider, mm, nil, nil)
 	reply, err := agent.Run(context.Background(), "Review this")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

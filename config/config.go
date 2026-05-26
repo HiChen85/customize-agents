@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -32,6 +33,11 @@ type SandboxConfig struct {
 	MaxOutputSize   int      `yaml:"max_output_size"`
 }
 
+type SkillsConfig struct {
+	ProjectDir string `yaml:"project_dir"`
+	UserDir    string `yaml:"user_dir"`
+}
+
 type Config struct {
 	Providers      map[string]ProviderConfig `yaml:"providers"`
 	ActiveProvider string                    `yaml:"active_provider"`
@@ -39,6 +45,7 @@ type Config struct {
 	MaxTokens      int                       `yaml:"max_tokens"`
 	SkillsDir      string                    `yaml:"skills_dir"`
 	ActiveSkills   []string                  `yaml:"active_skills"`
+	Skills         SkillsConfig              `yaml:"skills"`
 	Memory         MemoryConfig              `yaml:"memory"`
 	Server         ServerConfig              `yaml:"server"`
 	MCP            MCPConfig                 `yaml:"mcp"`
@@ -111,6 +118,19 @@ func Load(path string) (*Config, error) {
 	}
 	if cfg.SkillsDir == "" {
 		cfg.SkillsDir = "./skills"
+	}
+	if cfg.Skills.ProjectDir == "" {
+		if cfg.SkillsDir != "" {
+			cfg.Skills.ProjectDir = cfg.SkillsDir
+		} else {
+			cfg.Skills.ProjectDir = "./.agent/skills"
+		}
+	}
+	if cfg.Skills.UserDir == "" {
+		home, _ := os.UserHomeDir()
+		if home != "" {
+			cfg.Skills.UserDir = filepath.Join(home, ".agent", "skills")
+		}
 	}
 	if cfg.Lifecycle.ShutdownTimeout <= 0 {
 		cfg.Lifecycle.ShutdownTimeout = 30 * time.Second

@@ -18,19 +18,19 @@ type Agent struct {
 	llm               llm.Provider
 	memory            *memory.MemoryManager
 	tools             []Tool
-	skills            []*skill.Skill
+	skillRegistry     *skill.SkillRegistry
 	permissionHandler *PermissionHandler
 	executor          *ToolExecutor
 	hooks             *HookRegistry
 	lifecycle         *Lifecycle
 }
 
-func NewAgent(provider llm.Provider, mm *memory.MemoryManager, tools []Tool, skills []*skill.Skill) *Agent {
+func NewAgent(provider llm.Provider, mm *memory.MemoryManager, tools []Tool, registry *skill.SkillRegistry) *Agent {
 	return &Agent{
-		llm:    provider,
-		memory: mm,
-		tools:  tools,
-		skills: skills,
+		llm:           provider,
+		memory:        mm,
+		tools:         tools,
+		skillRegistry: registry,
 	}
 }
 
@@ -228,8 +228,12 @@ func (a *Agent) buildRequest(ctx context.Context, userInput string) llm.Request 
 func (a *Agent) buildSystemPrompt(ctx context.Context, userInput string) string {
 	system := "You are a helpful assistant."
 
-	for _, s := range a.skills {
-		system += "\n\n" + s.Prompt
+	if a.skillRegistry != nil {
+		system += a.skillRegistry.BuildIndexPrompt()
+
+		for _, s := range a.skillRegistry.ActiveSkills() {
+			system += "\n\n" + s.Prompt
+		}
 	}
 
 	memoryPrompt := a.memory.BuildMemoryPrompt(ctx, userInput)
@@ -336,13 +340,7 @@ func (a *Agent) AddTools(tools ...Tool) {
 	a.tools = append(a.tools, tools...)
 }
 
-func (a *Agent) ActiveSkills() []*skill.Skill {
-	return a.skills
-}
-
-func (a *Agent) ActivateSkill(s *skill.Skill) {
-	a.skills = append(a.skills, s)
-}
+func (a *Agent) SkillRegistry() *skill.SkillRegistry { return a.skillRegistry }
 
 func extractToolUse(blocks []llm.Block) []llm.ToolUseBlock {
 	var calls []llm.ToolUseBlock

@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/HiChen85/customize-agents/llm"
 	"github.com/HiChen85/customize-agents/memory"
+	"github.com/HiChen85/customize-agents/skill"
 )
 
 func NewExecTool() Tool {
@@ -145,6 +146,29 @@ func NewMemoryContextTool(mm *memory.MemoryManager) Tool {
 		Execute: func(ctx context.Context, input json.RawMessage) (string, error) {
 			used, max := mm.TokenUsage()
 			return fmt.Sprintf("Context window: %d / %d tokens used (%.1f%% full)", used, max, float64(used)/float64(max)*100), nil
+		},
+	}
+}
+
+func NewActivateSkillTool(registry *skill.SkillRegistry) Tool {
+	return Tool{
+		Definition: llm.ToolDef{
+			Name:        "activate_skill",
+			Description: "Load and activate a skill to get specialized guidance. Use when the task matches a skill's trigger condition from the Available Skills table.",
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"name":{"type":"string","description":"Name of the skill to activate"}},"required":["name"]}`),
+		},
+		Execute: func(ctx context.Context, input json.RawMessage) (string, error) {
+			var params struct {
+				Name string `json:"name"`
+			}
+			if err := json.Unmarshal(input, &params); err != nil {
+				return "", fmt.Errorf("parse input: %w", err)
+			}
+			s, err := registry.Activate(params.Name)
+			if err != nil {
+				return "", err
+			}
+			return s.Prompt, nil
 		},
 	}
 }

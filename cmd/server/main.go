@@ -52,12 +52,12 @@ func main() {
 	})
 	mm.Working.SetCompactor(compactor)
 
-	allSkills, _ := skill.LoadAllSkills(cfg.SkillsDir)
-	var activeSkills []*skill.Skill
+	registry := skill.NewSkillRegistry(cfg.Skills.ProjectDir, cfg.Skills.UserDir)
+	if err := registry.BuildIndex(); err != nil {
+		slog.Warn("failed to build skill index", "error", err)
+	}
 	for _, name := range cfg.ActiveSkills {
-		if s := skill.FindSkillByName(allSkills, name); s != nil {
-			activeSkills = append(activeSkills, s)
-		}
+		registry.Activate(name)
 	}
 
 	searchAPIKey := os.Getenv("TAVILY_API_KEY")
@@ -72,6 +72,7 @@ func main() {
 		core.NewMemorySaveTool(store),
 		core.NewMemorySearchTool(store),
 		core.NewMemoryContextTool(mm),
+		core.NewActivateSkillTool(registry),
 	}
 
 	// MCP tools
@@ -127,12 +128,12 @@ func main() {
 	core.RegisterMetricsHooks(hookRegistry, metricsCollector)
 
 	factory := &core.SessionFactory{
-		Provider:  llmProvider,
-		Tools:     tools,
-		Skills:    activeSkills,
-		Store:     store,
-		Hooks:     hookRegistry,
-		MaxTokens: cfg.MaxTokens,
+		Provider:      llmProvider,
+		Tools:         tools,
+		SkillRegistry: registry,
+		Store:         store,
+		Hooks:         hookRegistry,
+		MaxTokens:     cfg.MaxTokens,
 	}
 
 	sessionMgr := core.NewSessionManager(core.SessionConfig{
