@@ -231,7 +231,7 @@ func (m AppModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, m.input.Focus()
 		}
 		if !m.running {
-			m.chatView.Clear()
+			m.chatView.ClearEphemeral()
 		}
 		return m, nil
 

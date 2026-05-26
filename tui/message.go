@@ -51,6 +51,7 @@ const (
 // ChatItem represents one item in the conversation
 type ChatItem interface {
 	Render(width int) string
+	IsEphemeral() bool
 }
 
 type UserMessage struct {
@@ -58,10 +59,13 @@ type UserMessage struct {
 }
 
 func (m *UserMessage) Render(width int) string {
+	maxWidth := width * 3 / 4
 	prefix := StyleUserPrefix.Render("You: ")
-	content := lipgloss.NewStyle().Width(width - 8).Render(m.Text)
-	return wrapWithBorder(prefix+content)
+	content := lipgloss.NewStyle().Width(maxWidth).Render(m.Text)
+	return wrapWithBorder(prefix + content)
 }
+
+func (m *UserMessage) IsEphemeral() bool { return false }
 
 type AssistantMessage struct {
 	Chunks   []string
@@ -69,11 +73,14 @@ type AssistantMessage struct {
 }
 
 func (m *AssistantMessage) Render(width int) string {
+	maxWidth := width * 3 / 4
 	prefix := StyleAgentPrefix.Render("Agent: ")
 	text := strings.Join(m.Chunks, "")
-	content := lipgloss.NewStyle().Width(width - 10).Render(text)
-	return wrapWithBorder(prefix+content)
+	content := lipgloss.NewStyle().Width(maxWidth).Render(text)
+	return wrapWithBorder(prefix + content)
 }
+
+func (m *AssistantMessage) IsEphemeral() bool { return false }
 
 type SystemMessage struct {
 	Text string
@@ -84,6 +91,8 @@ func (m *SystemMessage) Render(width int) string {
 	return wrapWithBorder(content)
 }
 
+func (m *SystemMessage) IsEphemeral() bool { return true }
+
 type ErrorMessage struct {
 	Text string
 }
@@ -92,6 +101,8 @@ func (m *ErrorMessage) Render(width int) string {
 	content := StyleError.Render("Error: " + m.Text)
 	return wrapWithBorder(content)
 }
+
+func (m *ErrorMessage) IsEphemeral() bool { return true }
 
 func wrapWithBorder(content string) string {
 	lines := strings.Split(content, "\n")

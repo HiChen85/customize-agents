@@ -78,6 +78,18 @@ func (cv *ChatViewport) SetBanner(banner string) {
 
 func (cv *ChatViewport) Clear() {
 	cv.items = nil
+	cv.viewport.SetContent("")
+	cv.rerender()
+}
+
+func (cv *ChatViewport) ClearEphemeral() {
+	var kept []ChatItem
+	for _, item := range cv.items {
+		if !item.IsEphemeral() {
+			kept = append(kept, item)
+		}
+	}
+	cv.items = kept
 	cv.rerender()
 }
 

@@ -75,6 +75,8 @@ func (d *ToolDrawer) Render(width int) string {
 	return d.View(width)
 }
 
+func (d *ToolDrawer) IsEphemeral() bool { return false }
+
 func (d *ToolDrawer) View(width int) string {
 	var sb strings.Builder
 
