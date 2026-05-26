@@ -4,3 +4,13 @@ bin/
 docs/
 .DS_Store
 .idea/
+
+.codegraph/
+
+.claude/
+
+CLAUDE.md
+
+cli
+
+server
