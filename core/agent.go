@@ -151,6 +151,8 @@ func (a *Agent) RunStream(ctx context.Context, userInput string, onEvent func(ll
 	}
 	a.memory.AppendMessage(userMsg)
 
+	const maxAgentRetries = 2
+
 	for {
 		if err := a.checkPausePoint(ctx); err != nil {
 			return "", fmt.Errorf("paused: %w", err)
@@ -165,9 +167,28 @@ func (a *Agent) RunStream(ctx context.Context, userInput string, onEvent func(ll
 		start := time.Now()
 		ch, err := sp.CreateMessageStream(ctx, req)
 		if err != nil {
-			a.fireHook(ctx, HookPayload{Event: OnError, Error: err})
-			a.fireHook(ctx, HookPayload{Event: AfterLLMCall, Duration: time.Since(start), Error: err})
-			return "", fmt.Errorf("LLM stream failed: %w", err)
+			if a.isRecoverableError(err) {
+				recovered := false
+				for retry := 0; retry < maxAgentRetries; retry++ {
+					slog.Warn("recoverable error, sanitizing memory and retrying", "error", err, "attempt", retry+1)
+					a.sanitizeMemory()
+					req = a.buildRequest(ctx, userInput)
+					ch, err = sp.CreateMessageStream(ctx, req)
+					if err == nil {
+						recovered = true
+						break
+					}
+				}
+				if !recovered {
+					a.fireHook(ctx, HookPayload{Event: OnError, Error: err})
+					a.fireHook(ctx, HookPayload{Event: AfterLLMCall, Duration: time.Since(start), Error: err})
+					return "", fmt.Errorf("LLM stream failed after %d retries: %w", maxAgentRetries, err)
+				}
+			} else {
+				a.fireHook(ctx, HookPayload{Event: OnError, Error: err})
+				a.fireHook(ctx, HookPayload{Event: AfterLLMCall, Duration: time.Since(start), Error: err})
+				return "", fmt.Errorf("LLM stream failed: %w", err)
+			}
 		}
 
 		var fullText strings.Builder
@@ -356,6 +377,20 @@ func (a *Agent) AddTools(tools ...Tool) {
 
 func (a *Agent) Tools() []Tool                       { return a.tools }
 func (a *Agent) SkillRegistry() *skill.SkillRegistry { return a.skillRegistry }
+
+func (a *Agent) isRecoverableError(err error) bool {
+	msg := err.Error()
+	return strings.Contains(msg, "marshal") ||
+		strings.Contains(msg, "MarshalJSON") ||
+		strings.Contains(msg, "unexpected end of")
+}
+
+func (a *Agent) sanitizeMemory() {
+	fixed := a.memory.SanitizeToolInputs()
+	if fixed > 0 {
+		slog.Info("sanitized malformed tool inputs in memory", "count", fixed)
+	}
+}
 
 func extractToolUse(blocks []llm.Block) []llm.ToolUseBlock {
 	var calls []llm.ToolUseBlock

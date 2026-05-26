@@ -2,6 +2,7 @@ package memory
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 
@@ -73,6 +74,22 @@ func (wm *WorkingMemory) MaxTokens() int {
 func (wm *WorkingMemory) Clear() {
 	wm.messages = wm.messages[:0]
 	wm.tokenCount = 0
+}
+
+func (wm *WorkingMemory) SanitizeToolInputs() int {
+	fixed := 0
+	for i := range wm.messages {
+		for j, block := range wm.messages[i].Content {
+			if tu, ok := block.(llm.ToolUseBlock); ok {
+				if len(tu.Input) == 0 || !json.Valid(tu.Input) {
+					tu.Input = json.RawMessage("{}")
+					wm.messages[i].Content[j] = tu
+					fixed++
+				}
+			}
+		}
+	}
+	return fixed
 }
 
 func (wm *WorkingMemory) compact() {

@@ -46,3 +46,7 @@ func (mm *MemoryManager) GetContextMessages() []llm.Message {
 func (mm *MemoryManager) TokenUsage() (used int, max int) {
 	return mm.Working.TokenCount(), mm.Working.MaxTokens()
 }
+
+func (mm *MemoryManager) SanitizeToolInputs() int {
+	return mm.Working.SanitizeToolInputs()
+}
