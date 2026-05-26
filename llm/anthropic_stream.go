@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 )
@@ -121,9 +122,10 @@ func (p *AnthropicProvider) parseSSEStream(ctx context.Context, body io.ReadClos
 			if currentTool != nil {
 				inputJSON := currentTool.InputJSON.String()
 				if inputJSON == "" {
+					slog.Warn("tool input JSON is empty, defaulting to {}", "tool", currentTool.Name)
 					inputJSON = "{}"
-				}
-				if !json.Valid([]byte(inputJSON)) {
+				} else if !json.Valid([]byte(inputJSON)) {
+					slog.Warn("tool input JSON is invalid, defaulting to {}", "tool", currentTool.Name, "raw", inputJSON)
 					inputJSON = "{}"
 				}
 				ch <- StreamEvent{

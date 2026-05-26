@@ -212,13 +212,13 @@ func NewWriteFileTool() Tool {
 	return Tool{
 		Definition: llm.ToolDef{
 			Name:        "write_file",
-			Description: "Write content to a file. Creates the file if it doesn't exist, or overwrites it if it does. Creates parent directories as needed.",
+			Description: "Write content to a file. Creates the file if it doesn't exist, or overwrites it if it does. Creates parent directories as needed. You MUST provide both 'path' and 'content' parameters. Example: {\"path\": \"/tmp/hello.txt\", \"content\": \"Hello world\"}",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
 					"path": {
 						"type": "string",
-						"description": "Absolute path to the file to write"
+						"description": "File path (absolute or relative to working directory). MUST NOT be empty."
 					},
 					"content": {
 						"type": "string",
@@ -237,10 +237,12 @@ func NewWriteFileTool() Tool {
 				return "", fmt.Errorf("parse input: %w", err)
 			}
 			if params.Path == "" {
-				return "", fmt.Errorf("path is required and cannot be empty")
+				return "", fmt.Errorf("'path' parameter is required but was empty. You must specify a file path like \"/tmp/example.txt\"")
 			}
+
 			if !filepath.IsAbs(params.Path) {
-				return "", fmt.Errorf("path must be absolute, got: %q", params.Path)
+				cwd, _ := os.Getwd()
+				params.Path = filepath.Join(cwd, params.Path)
 			}
 
 			dir := filepath.Dir(params.Path)
