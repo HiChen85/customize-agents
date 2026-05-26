@@ -320,7 +320,7 @@ func (m AppModel) handleCommand(input string) (tea.Model, tea.Cmd) {
 	case "/help":
 		help := "Commands:\n" +
 			"  /tools                  - List available tools\n" +
-			"  /skill list             - List available skills\n" +
+			"  /skills                 - List available skills\n" +
 			"  /skill activate <name>  - Activate a skill\n" +
 			"  /memory search <query>  - Search long-term memory\n" +
 			"  /status                 - Show context window usage\n" +
@@ -343,28 +343,29 @@ func (m AppModel) handleCommand(input string) (tea.Model, tea.Cmd) {
 		}
 		m.chatView.AppendItem(&SystemMessage{Text: sb.String()})
 
+	case "/skills":
+		if m.registry == nil {
+			m.chatView.AppendItem(&SystemMessage{Text: "No skill registry available."})
+			return m, nil
+		}
+		var sb strings.Builder
+		sb.WriteString("Available skills:\n")
+		index := m.registry.GetIndex()
+		for _, idx := range index {
+			active := ""
+			if m.registry.IsActive(idx.Name) {
+				active = " [active]"
+			}
+			sb.WriteString(fmt.Sprintf("  - %s: %s%s\n", idx.Name, idx.Description, active))
+		}
+		m.chatView.AppendItem(&SystemMessage{Text: sb.String()})
+
 	case "/skill":
 		if len(parts) < 2 {
-			m.chatView.AppendItem(&SystemMessage{Text: "Usage: /skill list | /skill activate <name>"})
+			m.chatView.AppendItem(&SystemMessage{Text: "Usage: /skill activate <name>"})
 			return m, nil
 		}
 		switch parts[1] {
-		case "list":
-			if m.registry == nil {
-				m.chatView.AppendItem(&SystemMessage{Text: "No skill registry available."})
-				return m, nil
-			}
-			var sb strings.Builder
-			sb.WriteString("Available skills:\n")
-			index := m.registry.GetIndex()
-			for _, idx := range index {
-				active := ""
-				if m.registry.IsActive(idx.Name) {
-					active = " [active]"
-				}
-				sb.WriteString(fmt.Sprintf("  - %s: %s%s\n", idx.Name, idx.Description, active))
-			}
-			m.chatView.AppendItem(&SystemMessage{Text: sb.String()})
 		case "activate":
 			if len(parts) < 3 {
 				m.chatView.AppendItem(&SystemMessage{Text: "Usage: /skill activate <name>"})
