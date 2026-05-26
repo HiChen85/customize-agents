@@ -58,9 +58,19 @@ func NewApp(agent *core.Agent, mm *memory.MemoryManager, registry *skill.SkillRe
 		"  Type /tools to see available tools, /skills for skills."
 	cv.SetBanner(banner)
 
+	input := NewInput()
+	if registry != nil {
+		idx := registry.GetIndex()
+		names := make([]string, 0, len(idx))
+		for _, s := range idx {
+			names = append(names, s.Name)
+		}
+		input.SetSkills(names)
+	}
+
 	return AppModel{
 		chatView:    cv,
-		input:       NewInput(),
+		input:       input,
 		statusbar:   NewStatusBar(modelName, maxTokens),
 		agent:       agent,
 		memoryMgr:   mm,

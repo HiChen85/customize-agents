@@ -55,4 +55,7 @@ var (
 	StyleSystemMsg = lipgloss.NewStyle().
 			Foreground(ColorMuted).
 			Italic(true)
+
+	StyleCyan = lipgloss.NewStyle().
+			Foreground(ColorCyan)
 )
