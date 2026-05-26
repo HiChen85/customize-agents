@@ -78,7 +78,12 @@ func (a *Agent) Run(ctx context.Context, userInput string) (string, error) {
 	}
 	a.memory.AppendMessage(userMsg)
 
-	for {
+	const maxIterations = 20
+	for iteration := 0; ; iteration++ {
+		if iteration >= maxIterations {
+			return "", fmt.Errorf("agent exceeded maximum of %d tool-use iterations", maxIterations)
+		}
+
 		if err := a.checkPausePoint(ctx); err != nil {
 			return "", fmt.Errorf("paused: %w", err)
 		}
@@ -152,8 +157,17 @@ func (a *Agent) RunStream(ctx context.Context, userInput string, onEvent func(ll
 	a.memory.AppendMessage(userMsg)
 
 	const maxAgentRetries = 2
+	const maxLoopIterations = 20
 
+	var lastText string
+	iteration := 0
 	for {
+		iteration++
+		if iteration > maxLoopIterations {
+			slog.Warn("agent loop hit max iterations, stopping", "max", maxLoopIterations)
+			return lastText, fmt.Errorf("agent exceeded maximum of %d tool-use iterations", maxLoopIterations)
+		}
+
 		if err := a.checkPausePoint(ctx); err != nil {
 			return "", fmt.Errorf("paused: %w", err)
 		}
@@ -241,6 +255,7 @@ func (a *Agent) RunStream(ctx context.Context, userInput string, onEvent func(ll
 			return fullText.String(), nil
 		}
 
+		lastText = fullText.String()
 		results := a.executeTools(ctx, toolCalls)
 		toolResultMsg := llm.Message{Role: "user", Content: results}
 		a.memory.AppendMessage(toolResultMsg)
@@ -326,9 +341,13 @@ func (a *Agent) executeSingleTool(ctx context.Context, call llm.ToolUseBlock) ll
 		if tool.Definition.Name == call.Name {
 			if a.executor != nil {
 				result := a.executor.Execute(ctx, tool, call)
-				a.fireHook(ctx, HookPayload{Event: AfterToolCall, ToolName: call.Name, Output: result.Content, Duration: time.Since(start)})
+				hookPayload := HookPayload{Event: AfterToolCall, ToolName: call.Name, Output: result.Content, Duration: time.Since(start)}
 				if result.IsError {
-					a.fireHook(ctx, HookPayload{Event: OnError, Error: fmt.Errorf("%s", result.Content), ToolName: call.Name})
+					hookPayload.Error = fmt.Errorf("%s", result.Content)
+					a.fireHook(ctx, hookPayload)
+					a.fireHook(ctx, HookPayload{Event: OnError, Error: hookPayload.Error, ToolName: call.Name})
+				} else {
+					a.fireHook(ctx, hookPayload)
 				}
 				return result
 			}
