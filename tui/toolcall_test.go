@@ -36,8 +36,8 @@ func TestToolDrawer_Error(t *testing.T) {
 	if d.state != ToolStateError {
 		t.Fatalf("expected error, got %v", d.state)
 	}
-	if d.expanded {
-		t.Fatal("expected collapsed on error")
+	if !d.expanded {
+		t.Fatal("expected auto-expanded on error to show full error message")
 	}
 }
 

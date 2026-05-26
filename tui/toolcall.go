@@ -50,11 +50,12 @@ func NewToolDrawer(id, name string, input json.RawMessage) *ToolDrawer {
 func (d *ToolDrawer) Complete(output string, duration time.Duration, isError bool) {
 	d.output = output
 	d.duration = duration
-	d.expanded = false
 	if isError {
 		d.state = ToolStateError
+		d.expanded = true
 	} else {
 		d.state = ToolStateDone
+		d.expanded = false
 	}
 }
 

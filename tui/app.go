@@ -94,7 +94,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		viewportHeight := m.height - 6
+		viewportHeight := m.height - 7
 		m.chatView.SetSize(msg.Width, viewportHeight)
 		m.input.SetWidth(msg.Width)
 		m.statusbar.SetWidth(msg.Width)
@@ -504,7 +504,8 @@ func (m AppModel) handleCommand(input string) (tea.Model, tea.Cmd) {
 }
 
 func (m AppModel) View() string {
-	return m.chatView.View() + "\n" + m.input.View() + "\n" + m.statusbar.View()
+	hints := StyleDimmed.Render("  Tab: navigate tools │ Enter: expand/collapse │ Esc: clear │ Ctrl+C: cancel │ Ctrl+D: quit")
+	return m.chatView.View() + "\n" + m.input.View() + "\n" + hints + "\n" + m.statusbar.View()
 }
 
 // toolIDQueue is a thread-safe FIFO queue for tracking parallel tool invocations
