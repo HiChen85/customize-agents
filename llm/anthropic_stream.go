@@ -80,16 +80,18 @@ func (p *AnthropicProvider) parseSSEStream(ctx context.Context, body io.ReadClos
 			Type         string `json:"type"`
 			Index        int    `json:"index"`
 			ContentBlock struct {
-				Type string `json:"type"`
-				ID   string `json:"id"`
-				Name string `json:"name"`
-				Text string `json:"text"`
+				Type  string          `json:"type"`
+				ID    string          `json:"id"`
+				Name  string          `json:"name"`
+				Text  string          `json:"text"`
+				Input json.RawMessage `json:"input"`
 			} `json:"content_block"`
 			Delta struct {
 				Type        string `json:"type"`
 				Text        string `json:"text"`
 				Thinking    string `json:"thinking"`
 				PartialJSON string `json:"partial_json"`
+				JSON        string `json:"json"`
 				StopReason  string `json:"stop_reason"`
 			} `json:"delta"`
 		}
@@ -105,6 +107,12 @@ func (p *AnthropicProvider) parseSSEStream(ctx context.Context, body io.ReadClos
 					ID:   event.ContentBlock.ID,
 					Name: event.ContentBlock.Name,
 				}
+				if len(event.ContentBlock.Input) > 0 && string(event.ContentBlock.Input) != "null" && string(event.ContentBlock.Input) != "{}" {
+					currentTool.InputJSON.Write(event.ContentBlock.Input)
+					slog.Debug("stream: tool_use block started with inline input", "tool", event.ContentBlock.Name, "input_len", len(event.ContentBlock.Input))
+				} else {
+					slog.Debug("stream: tool_use block started", "tool", event.ContentBlock.Name, "id", event.ContentBlock.ID)
+				}
 			} else if event.ContentBlock.Type == "thinking" {
 				currentThinking = &strings.Builder{}
 			}
@@ -113,9 +121,23 @@ func (p *AnthropicProvider) parseSSEStream(ctx context.Context, body io.ReadClos
 			if event.Delta.Type == "text_delta" {
 				ch <- StreamEvent{Type: "text_delta", Text: event.Delta.Text}
 			} else if event.Delta.Type == "input_json_delta" && currentTool != nil {
-				currentTool.InputJSON.WriteString(event.Delta.PartialJSON)
+				if event.Delta.PartialJSON != "" {
+					currentTool.InputJSON.WriteString(event.Delta.PartialJSON)
+				} else if event.Delta.JSON != "" {
+					currentTool.InputJSON.WriteString(event.Delta.JSON)
+				} else if event.Delta.Text != "" {
+					currentTool.InputJSON.WriteString(event.Delta.Text)
+				}
 			} else if event.Delta.Type == "thinking_delta" && currentThinking != nil {
 				currentThinking.WriteString(event.Delta.Thinking)
+			} else if currentTool != nil {
+				if event.Delta.PartialJSON != "" {
+					currentTool.InputJSON.WriteString(event.Delta.PartialJSON)
+				} else if event.Delta.JSON != "" {
+					currentTool.InputJSON.WriteString(event.Delta.JSON)
+				} else if event.Delta.Type != "" {
+					slog.Warn("stream: unrecognized delta type during tool input", "type", event.Delta.Type, "tool", currentTool.Name)
+				}
 			}
 
 		case "content_block_stop":
