@@ -50,6 +50,7 @@ func (p *AnthropicProvider) parseSSEStream(ctx context.Context, body io.ReadClos
 	defer body.Close()
 
 	scanner := bufio.NewScanner(body)
+	scanner.Buffer(make([]byte, 0, 1024*1024), 1024*1024)
 
 	type toolBuffer struct {
 		ID        string
