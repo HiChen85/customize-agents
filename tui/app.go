@@ -507,6 +507,31 @@ func (m AppModel) View() string {
 	return m.chatView.View() + "\n" + m.input.View() + "\n" + m.statusbar.View()
 }
 
+// toolIDQueue is a thread-safe FIFO queue for tracking parallel tool invocations
+// with the same name. Solves the problem where multiple concurrent calls to the
+// same tool (e.g. 3 parallel web_search) need individual ToolDoneMsg delivery.
+type toolIDQueue struct {
+	mu  sync.Mutex
+	ids []string
+}
+
+func (q *toolIDQueue) Push(id string) {
+	q.mu.Lock()
+	q.ids = append(q.ids, id)
+	q.mu.Unlock()
+}
+
+func (q *toolIDQueue) Pop() (string, bool) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if len(q.ids) == 0 {
+		return "", false
+	}
+	id := q.ids[0]
+	q.ids = q.ids[1:]
+	return id, true
+}
+
 // Run starts the TUI application
 func Run(agent *core.Agent, mm *memory.MemoryManager, registry *skill.SkillRegistry, modelName string, maxTokens int) error {
 	app := NewApp(agent, mm, registry, modelName, maxTokens)
@@ -515,7 +540,7 @@ func Run(agent *core.Agent, mm *memory.MemoryManager, registry *skill.SkillRegis
 	var p *tea.Program
 	var toolCounter int64
 	var toolCounterMu sync.Mutex
-	var activeToolIDs sync.Map
+	var toolQueues sync.Map // key: toolName → value: *toolIDQueue
 
 	hookRegistry.Register(core.BeforeToolCall, core.NewGoHook(func(ctx context.Context, payload core.HookPayload) error {
 		if p != nil {
@@ -523,7 +548,11 @@ func Run(agent *core.Agent, mm *memory.MemoryManager, registry *skill.SkillRegis
 			toolCounter++
 			id := fmt.Sprintf("%s-%d", payload.ToolName, toolCounter)
 			toolCounterMu.Unlock()
-			activeToolIDs.Store(payload.ToolName+"-active", id)
+
+			qVal, _ := toolQueues.LoadOrStore(payload.ToolName, &toolIDQueue{})
+			q := qVal.(*toolIDQueue)
+			q.Push(id)
+
 			p.Send(ToolStartMsg{
 				ID:    id,
 				Name:  payload.ToolName,
@@ -535,11 +564,16 @@ func Run(agent *core.Agent, mm *memory.MemoryManager, registry *skill.SkillRegis
 
 	hookRegistry.Register(core.AfterToolCall, core.NewGoHook(func(ctx context.Context, payload core.HookPayload) error {
 		if p != nil {
-			idVal, ok := activeToolIDs.LoadAndDelete(payload.ToolName + "-active")
+			qVal, ok := toolQueues.Load(payload.ToolName)
 			if !ok {
 				return nil
 			}
-			id := idVal.(string)
+			q := qVal.(*toolIDQueue)
+			id, ok := q.Pop()
+			if !ok {
+				return nil
+			}
+
 			isError := payload.Error != nil
 			output := payload.Output
 			if isError {
