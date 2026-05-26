@@ -16,6 +16,13 @@ import (
 	"github.com/HiChen85/customize-agents/skill"
 )
 
+// programRef holds a shared reference to tea.Program.
+// Needed because Bubble Tea copies the model by value, so a plain
+// *tea.Program field set after NewProgram would be nil inside the running model.
+type programRef struct {
+	p *tea.Program
+}
+
 type AppModel struct {
 	chatView  ChatViewport
 	input     InputModel
@@ -31,7 +38,7 @@ type AppModel struct {
 	running     bool
 	width       int
 	height      int
-	program     *tea.Program
+	pRef        *programRef
 
 	toolDrawers map[string]*ToolDrawer
 	toolIndex   []string
@@ -49,6 +56,7 @@ func NewApp(agent *core.Agent, mm *memory.MemoryManager, registry *skill.SkillRe
 		modelName:   modelName,
 		focus:       FocusInput,
 		toolDrawers: make(map[string]*ToolDrawer),
+		pRef:        &programRef{},
 	}
 }
 
@@ -288,12 +296,11 @@ func (m AppModel) handleInput(text string) (tea.Model, tea.Cmd) {
 }
 
 func (m AppModel) runAgent(ctx context.Context, input string) tea.Cmd {
+	pRef := m.pRef
 	return func() tea.Msg {
-		p := m.program
-
 		onEvent := func(event llm.StreamEvent) {
-			if event.Type == "text_delta" && p != nil {
-				p.Send(StreamTextMsg{Text: event.Text})
+			if event.Type == "text_delta" && pRef != nil && pRef.p != nil {
+				pRef.p.Send(StreamTextMsg{Text: event.Text})
 			}
 		}
 
@@ -487,7 +494,7 @@ func Run(agent *core.Agent, mm *memory.MemoryManager, registry *skill.SkillRegis
 	agent.SetHookRegistry(hookRegistry)
 
 	p = tea.NewProgram(app, tea.WithAltScreen())
-	app.program = p
+	app.pRef.p = p
 
 	_, err := p.Run()
 	return err
