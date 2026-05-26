@@ -33,12 +33,13 @@ type AppModel struct {
 	registry  *skill.SkillRegistry
 	modelName string
 
-	agentCancel context.CancelFunc
-	focus       FocusArea
-	running     bool
-	width       int
-	height      int
-	pRef        *programRef
+	agentCancel  context.CancelFunc
+	focus        FocusArea
+	running      bool
+	width        int
+	height       int
+	pRef         *programRef
+	oneshotSkill string
 
 	toolDrawers map[string]*ToolDrawer
 	toolIndex   []string
@@ -158,6 +159,10 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.running = false
 		m.input.SetDisabled(false)
 		m.statusbar.SetState("idle")
+		if m.oneshotSkill != "" && m.registry != nil {
+			m.registry.Deactivate(m.oneshotSkill)
+			m.oneshotSkill = ""
+		}
 		cmds = append(cmds, m.input.Focus())
 		return m, tea.Batch(cmds...)
 
@@ -166,6 +171,10 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.running = false
 		m.input.SetDisabled(false)
 		m.statusbar.SetState("idle")
+		if m.oneshotSkill != "" && m.registry != nil {
+			m.registry.Deactivate(m.oneshotSkill)
+			m.oneshotSkill = ""
+		}
 		cmds = append(cmds, m.input.Focus())
 		return m, tea.Batch(cmds...)
 
@@ -293,6 +302,30 @@ func (m *AppModel) clearToolFocus() {
 func (m AppModel) handleInput(text string) (tea.Model, tea.Cmd) {
 	if strings.HasPrefix(text, "/") {
 		return m.handleCommand(text)
+	}
+
+	// Handle $skill-name <message> one-shot skill invocation
+	if strings.HasPrefix(text, "$") && m.registry != nil {
+		parts := strings.SplitN(text[1:], " ", 2)
+		skillName := parts[0]
+		msg := ""
+		if len(parts) > 1 {
+			msg = parts[1]
+		}
+		if msg == "" {
+			m.chatView.AppendItem(&ErrorMessage{Text: "Usage: $skill-name <message>"})
+			return m, nil
+		}
+		if !m.registry.IsActive(skillName) {
+			_, err := m.registry.Activate(skillName)
+			if err != nil {
+				m.chatView.AppendItem(&ErrorMessage{Text: fmt.Sprintf("skill '%s' not found: %v", skillName, err)})
+				return m, nil
+			}
+			m.oneshotSkill = skillName
+		}
+		m.chatView.AppendItem(&SystemMessage{Text: fmt.Sprintf("Using skill: %s", skillName)})
+		text = msg
 	}
 
 	m.chatView.AppendItem(&UserMessage{Text: text})

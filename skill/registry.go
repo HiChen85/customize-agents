@@ -143,6 +143,12 @@ func (r *SkillRegistry) IsActive(name string) bool {
 	return ok
 }
 
+func (r *SkillRegistry) Deactivate(name string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.loaded, strings.ToLower(name))
+}
+
 func (r *SkillRegistry) ActiveSkills() []*Skill {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
