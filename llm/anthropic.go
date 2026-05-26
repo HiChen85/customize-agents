@@ -70,7 +70,11 @@ func (p *AnthropicProvider) buildRequestBody(req Request) map[string]any {
 			case TextBlock:
 				content = append(content, map[string]any{"type": "text", "text": b.Text})
 			case ToolUseBlock:
-				content = append(content, map[string]any{"type": "tool_use", "id": b.ID, "name": b.Name, "input": b.Input})
+				input := b.Input
+				if len(input) == 0 || !json.Valid(input) {
+					input = json.RawMessage("{}")
+				}
+				content = append(content, map[string]any{"type": "tool_use", "id": b.ID, "name": b.Name, "input": input})
 			case ToolResultBlock:
 				content = append(content, map[string]any{"type": "tool_result", "tool_use_id": b.ToolUseID, "content": b.Content, "is_error": b.IsError})
 			}
@@ -93,10 +97,14 @@ func (p *AnthropicProvider) buildRequestBody(req Request) map[string]any {
 	if len(req.Tools) > 0 {
 		tools := make([]map[string]any, 0, len(req.Tools))
 		for _, t := range req.Tools {
+			schema := t.InputSchema
+			if len(schema) == 0 || !json.Valid(schema) {
+				schema = json.RawMessage(`{"type":"object","properties":{}}`)
+			}
 			tools = append(tools, map[string]any{
 				"name":         t.Name,
 				"description":  t.Description,
-				"input_schema": t.InputSchema,
+				"input_schema": schema,
 			})
 		}
 		body["tools"] = tools

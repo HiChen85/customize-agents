@@ -123,6 +123,9 @@ func (p *AnthropicProvider) parseSSEStream(ctx context.Context, body io.ReadClos
 				if inputJSON == "" {
 					inputJSON = "{}"
 				}
+				if !json.Valid([]byte(inputJSON)) {
+					inputJSON = "{}"
+				}
 				ch <- StreamEvent{
 					Type: "tool_use",
 					ToolUse: &ToolUseBlock{
@@ -143,6 +146,22 @@ func (p *AnthropicProvider) parseSSEStream(ctx context.Context, body io.ReadClos
 		case "message_stop":
 			ch <- StreamEvent{Type: "done"}
 			return
+		}
+	}
+
+	// Handle incomplete tool if stream ended mid-tool
+	if currentTool != nil {
+		inputJSON := currentTool.InputJSON.String()
+		if inputJSON == "" || !json.Valid([]byte(inputJSON)) {
+			inputJSON = "{}"
+		}
+		ch <- StreamEvent{
+			Type: "tool_use",
+			ToolUse: &ToolUseBlock{
+				ID:    currentTool.ID,
+				Name:  currentTool.Name,
+				Input: json.RawMessage(inputJSON),
+			},
 		}
 	}
 
