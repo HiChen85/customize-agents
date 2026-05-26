@@ -10,6 +10,7 @@ import (
 type Skill struct {
 	Name        string
 	Description string
+	Trigger     string
 	Prompt      string
 	Dir         string
 	Docs        map[string]string
@@ -30,6 +31,7 @@ func LoadSkill(dir string) (*Skill, error) {
 	return &Skill{
 		Name:        fm.Name,
 		Description: fm.Description,
+		Trigger:     fm.Trigger,
 		Prompt:      body,
 		Dir:         dir,
 		Docs:        make(map[string]string),

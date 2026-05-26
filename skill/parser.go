@@ -10,6 +10,7 @@ import (
 type Frontmatter struct {
 	Name        string `yaml:"name"`
 	Description string `yaml:"description"`
+	Trigger     string `yaml:"trigger"`
 }
 
 func ParseFrontmatter(data []byte) (Frontmatter, string, error) {
