@@ -23,7 +23,7 @@ func NewInput() InputModel {
 	ta.Placeholder = "Send a message... (/ for commands)"
 	ta.Focus()
 	ta.CharLimit = 4096
-	ta.SetHeight(3)
+	ta.SetHeight(1)
 	ta.ShowLineNumbers = false
 	ta.FocusedStyle.CursorLine = lipgloss.NewStyle()
 	ta.FocusedStyle.Placeholder = lipgloss.NewStyle().Foreground(ColorMuted)

@@ -2,7 +2,6 @@ package tui
 
 import (
 	"encoding/json"
-	"fmt"
 	"strings"
 	"time"
 
@@ -60,8 +59,8 @@ type UserMessage struct {
 
 func (m *UserMessage) Render(width int) string {
 	prefix := StyleUserPrefix.Render("You: ")
-	content := lipgloss.NewStyle().Width(width - 6).Render(m.Text)
-	return fmt.Sprintf("│ %s%s", prefix, content)
+	content := lipgloss.NewStyle().Width(width - 8).Render(m.Text)
+	return wrapWithBorder(prefix+content)
 }
 
 type AssistantMessage struct {
@@ -72,8 +71,8 @@ type AssistantMessage struct {
 func (m *AssistantMessage) Render(width int) string {
 	prefix := StyleAgentPrefix.Render("Agent: ")
 	text := strings.Join(m.Chunks, "")
-	content := lipgloss.NewStyle().Width(width - 9).Render(text)
-	return fmt.Sprintf("│ %s%s", prefix, content)
+	content := lipgloss.NewStyle().Width(width - 10).Render(text)
+	return wrapWithBorder(prefix+content)
 }
 
 type SystemMessage struct {
@@ -81,7 +80,8 @@ type SystemMessage struct {
 }
 
 func (m *SystemMessage) Render(width int) string {
-	return "│ " + StyleSystemMsg.Render(m.Text)
+	content := StyleSystemMsg.Render(m.Text)
+	return wrapWithBorder(content)
 }
 
 type ErrorMessage struct {
@@ -89,5 +89,18 @@ type ErrorMessage struct {
 }
 
 func (m *ErrorMessage) Render(width int) string {
-	return "│ " + StyleError.Render("Error: "+m.Text)
+	content := StyleError.Render("Error: " + m.Text)
+	return wrapWithBorder(content)
+}
+
+func wrapWithBorder(content string) string {
+	lines := strings.Split(content, "\n")
+	var sb strings.Builder
+	for i, line := range lines {
+		if i > 0 {
+			sb.WriteString("\n")
+		}
+		sb.WriteString("│ " + line)
+	}
+	return sb.String()
 }

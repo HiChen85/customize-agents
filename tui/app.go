@@ -46,8 +46,18 @@ type AppModel struct {
 }
 
 func NewApp(agent *core.Agent, mm *memory.MemoryManager, registry *skill.SkillRegistry, modelName string, maxTokens int) AppModel {
+	cv := NewChatViewport(80, 20)
+
+	welcome := "  ╦ ╦╔═╗╦═╗╔╗╔╔═╗╔═╗╔═╗\n" +
+		"  ╠═╣╠═╣╠╦╝║║║║╣ ╚═╗╚═╗\n" +
+		"  ╩ ╩╩ ╩╩╚═╝╚╝╚═╝╚═╝╚═╝  Agent\n\n" +
+		"  Model: " + modelName + "\n" +
+		"  Type /help for commands, or start chatting.\n" +
+		"  Type /tools to see available tools, /skills for skills."
+	cv.AppendItem(&SystemMessage{Text: welcome})
+
 	return AppModel{
-		chatView:    NewChatViewport(80, 20),
+		chatView:    cv,
 		input:       NewInput(),
 		statusbar:   NewStatusBar(modelName, maxTokens),
 		agent:       agent,
@@ -219,6 +229,9 @@ func (m AppModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.chatView.rerender()
 			return m, m.input.Focus()
 		}
+		if !m.running {
+			m.chatView.Clear()
+		}
 		return m, nil
 
 	case "enter":
@@ -341,6 +354,7 @@ func (m AppModel) handleCommand(input string) (tea.Model, tea.Cmd) {
 		for _, t := range tools {
 			sb.WriteString(fmt.Sprintf("  - %s: %s\n", t.Definition.Name, t.Definition.Description))
 		}
+		sb.WriteString("\n  (Press Esc to clear)")
 		m.chatView.AppendItem(&SystemMessage{Text: sb.String()})
 
 	case "/skills":
@@ -358,6 +372,7 @@ func (m AppModel) handleCommand(input string) (tea.Model, tea.Cmd) {
 			}
 			sb.WriteString(fmt.Sprintf("  - %s: %s%s\n", idx.Name, idx.Description, active))
 		}
+		sb.WriteString("\n  (Press Esc to clear)")
 		m.chatView.AppendItem(&SystemMessage{Text: sb.String()})
 
 	case "/skill":
