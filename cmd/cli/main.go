@@ -111,6 +111,7 @@ func main() {
 	}
 
 	agent := core.NewAgent(llmProvider, mm, tools, registry)
+	agent.SetMaxOutputTokens(cfg.MaxTokens)
 
 	agent.SetExecutor(core.NewToolExecutor(core.ExecutorConfig{
 		Timeout: 30 * time.Second, MaxRetries: 2, RetryDelay: 1 * time.Second,

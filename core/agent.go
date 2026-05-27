@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -23,6 +24,7 @@ type Agent struct {
 	executor          *ToolExecutor
 	hooks             *HookRegistry
 	lifecycle         *Lifecycle
+	maxOutputTokens   int
 }
 
 func NewAgent(provider llm.Provider, mm *memory.MemoryManager, tools []Tool, registry *skill.SkillRegistry) *Agent {
@@ -34,9 +36,10 @@ func NewAgent(provider llm.Provider, mm *memory.MemoryManager, tools []Tool, reg
 	}
 }
 
-func (a *Agent) SetHookRegistry(r *HookRegistry) { a.hooks = r }
-func (a *Agent) SetLifecycle(l *Lifecycle)       { a.lifecycle = l }
-func (a *Agent) Lifecycle() *Lifecycle           { return a.lifecycle }
+func (a *Agent) SetHookRegistry(r *HookRegistry)    { a.hooks = r }
+func (a *Agent) SetLifecycle(l *Lifecycle)           { a.lifecycle = l }
+func (a *Agent) SetMaxOutputTokens(n int)            { a.maxOutputTokens = n }
+func (a *Agent) Lifecycle() *Lifecycle               { return a.lifecycle }
 
 func (a *Agent) checkPausePoint(ctx context.Context) error {
 	if a.lifecycle == nil {
@@ -112,6 +115,25 @@ func (a *Agent) Run(ctx context.Context, userInput string) (string, error) {
 		toolCalls := extractToolUse(resp.Content)
 		if len(toolCalls) == 0 {
 			return extractText(resp.Content), nil
+		}
+
+		// If output was truncated, don't execute incomplete tool calls
+		if resp.StopReason == "max_tokens" || resp.StopReason == "length" {
+			slog.Warn("output truncated in non-stream mode", "stop_reason", resp.StopReason)
+			truncMsg := llm.Message{Role: "user", Content: []llm.Block{llm.ToolResultBlock{
+				ToolUseID: toolCalls[0].ID,
+				Content:   "Error: your output was truncated due to token limit. The tool input was incomplete and could not be executed. Please break the task into smaller steps.",
+				IsError:   true,
+			}}}
+			for _, tc := range toolCalls[1:] {
+				truncMsg.Content = append(truncMsg.Content, llm.ToolResultBlock{
+					ToolUseID: tc.ID,
+					Content:   "Error: output truncated, tool call skipped.",
+					IsError:   true,
+				})
+			}
+			a.memory.AppendMessage(truncMsg)
+			continue
 		}
 
 		results := a.executeTools(ctx, toolCalls)
@@ -208,6 +230,7 @@ func (a *Agent) RunStream(ctx context.Context, userInput string, onEvent func(ll
 		var fullText strings.Builder
 		var toolCalls []llm.ToolUseBlock
 		var blocks []llm.Block
+		var streamStopReason string
 
 		for event := range ch {
 			switch event.Type {
@@ -223,6 +246,8 @@ func (a *Agent) RunStream(ctx context.Context, userInput string, onEvent func(ll
 				if event.Thinking != nil {
 					blocks = append(blocks, *event.Thinking)
 				}
+			case "done":
+				streamStopReason = event.StopReason
 			case "error":
 				a.fireHook(ctx, HookPayload{Event: OnError, Error: event.Error})
 				return fullText.String(), event.Error
@@ -255,6 +280,32 @@ func (a *Agent) RunStream(ctx context.Context, userInput string, onEvent func(ll
 			return fullText.String(), nil
 		}
 
+		// If output was truncated (max_tokens/length), don't execute the
+		// incomplete tool calls — ask the model to retry with smaller output.
+		truncated := streamStopReason == "max_tokens" || streamStopReason == "length"
+		if truncated {
+			slog.Warn("output truncated, skipping tool execution", "stop_reason", streamStopReason, "tools", len(toolCalls))
+			truncMsg := llm.Message{
+				Role: "user",
+				Content: []llm.Block{llm.ToolResultBlock{
+					ToolUseID: toolCalls[0].ID,
+					Content:   "Error: your output was truncated due to token limit. The tool input was incomplete and could not be executed. Please break the task into smaller steps — for example, write files in shorter chunks, or split the work across multiple tool calls.",
+					IsError:   true,
+				}},
+			}
+			// Add result blocks for remaining tool calls if any
+			for _, tc := range toolCalls[1:] {
+				truncMsg.Content = append(truncMsg.Content, llm.ToolResultBlock{
+					ToolUseID: tc.ID,
+					Content:   "Error: output truncated, tool call skipped.",
+					IsError:   true,
+				})
+			}
+			a.memory.AppendMessage(truncMsg)
+			lastText = fullText.String()
+			continue
+		}
+
 		lastText = fullText.String()
 		results := a.executeTools(ctx, toolCalls)
 		toolResultMsg := llm.Message{Role: "user", Content: results}
@@ -267,17 +318,23 @@ func (a *Agent) buildRequest(ctx context.Context, userInput string) llm.Request 
 	messages := a.memory.GetContextMessages()
 	toolDefs := a.getToolDefs()
 
+	maxTokens := a.maxOutputTokens
+	if maxTokens <= 0 {
+		maxTokens = 8192
+	}
+
 	return llm.Request{
 		System:    system,
 		Messages:  messages,
 		Tools:     toolDefs,
-		MaxTokens: 4096,
+		MaxTokens: maxTokens,
 	}
 }
 
 func (a *Agent) buildSystemPrompt(ctx context.Context, userInput string) string {
 	today := time.Now().Format("2006-01-02")
-	system := fmt.Sprintf("You are Harness Agent, a demo AI agent tool built to showcase agentic capabilities including tool use, skill activation, and memory management. When asked who you are, always identify yourself as Harness Agent — never claim to be Claude, GPT, or any other AI model directly. You are powered by an LLM provider but your identity is Harness Agent.\n\nToday's date is %s. Always use this date when searching for current information.", today)
+	cwd, _ := os.Getwd()
+	system := fmt.Sprintf("You are Harness Agent, a demo AI agent tool built to showcase agentic capabilities including tool use, skill activation, and memory management. When asked who you are, always identify yourself as Harness Agent — never claim to be Claude, GPT, or any other AI model directly. You are powered by an LLM provider but your identity is Harness Agent.\n\nToday's date is %s. Always use this date when searching for current information.\n\nWorking directory: %s\nAll file operations (read, write, list, grep) should default to paths within or relative to this working directory unless the user explicitly specifies an absolute path elsewhere. Never write to system directories like /root, /etc, or /usr.", today, cwd)
 
 	if a.skillRegistry != nil {
 		system += a.skillRegistry.BuildIndexPrompt()

@@ -29,6 +29,9 @@ func NewExecTool() Tool {
 			if err := json.Unmarshal(input, &params); err != nil {
 				return "", fmt.Errorf("parse input: %w", err)
 			}
+			if params.Command == "" {
+				return "", fmt.Errorf("'command' parameter is required but was empty")
+			}
 
 			cmd := exec.CommandContext(ctx, "bash", "-c", params.Command)
 			if params.WorkDir != "" {

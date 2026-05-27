@@ -44,15 +44,15 @@ type Config struct {
 	Model          string                    `yaml:"model"`
 	MaxTokens      int                       `yaml:"max_tokens"`
 	SkillsDir      string                    `yaml:"skills_dir"`
-	ActiveSkills   []string                  `yaml:"active_skills"`
-	Skills         SkillsConfig              `yaml:"skills"`
-	Memory         MemoryConfig              `yaml:"memory"`
-	Server         ServerConfig              `yaml:"server"`
-	MCP            MCPConfig                 `yaml:"mcp"`
-	Hooks          map[string][]HookConfig   `yaml:"hooks"`
-	Lifecycle      LifecycleConfig           `yaml:"lifecycle"`
-	Sessions       SessionsConfig            `yaml:"sessions"`
-	Sandbox        SandboxConfig             `yaml:"sandbox"`
+	ActiveSkills    []string                  `yaml:"active_skills"`
+	Skills          SkillsConfig              `yaml:"skills"`
+	Memory          MemoryConfig              `yaml:"memory"`
+	Server          ServerConfig              `yaml:"server"`
+	MCP             MCPConfig                 `yaml:"mcp"`
+	Hooks           map[string][]HookConfig   `yaml:"hooks"`
+	Lifecycle       LifecycleConfig           `yaml:"lifecycle"`
+	Sessions        SessionsConfig            `yaml:"sessions"`
+	Sandbox         SandboxConfig             `yaml:"sandbox"`
 }
 
 type ProviderConfig struct {
@@ -102,7 +102,7 @@ func Load(path string) (*Config, error) {
 	}
 
 	if cfg.MaxTokens == 0 {
-		cfg.MaxTokens = 4096
+		cfg.MaxTokens = 8192
 	}
 	if cfg.Server.Port == 0 {
 		cfg.Server.Port = 8080

@@ -7,8 +7,8 @@ providers:
     base_url: "https://api.deepseek.com/anthropic"
 
 active_provider: deepseek
-model: deepseek-v4-pro
-max_tokens: 4096
+model: deepseek-v4-flash
+max_tokens: 384000
 
 skills:
   project_dir: "./.agent/skills"

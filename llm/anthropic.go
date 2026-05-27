@@ -71,12 +71,16 @@ func (p *AnthropicProvider) buildRequestBody(req Request) map[string]any {
 				content = append(content, map[string]any{"type": "text", "text": b.Text})
 			case ToolUseBlock:
 				input := b.Input
-				if len(input) == 0 || !json.Valid(input) {
+				if len(input) == 0 || !json.Valid(input) || string(input) == "null" {
 					input = json.RawMessage("{}")
 				}
 				content = append(content, map[string]any{"type": "tool_use", "id": b.ID, "name": b.Name, "input": input})
 			case ToolResultBlock:
-				content = append(content, map[string]any{"type": "tool_result", "tool_use_id": b.ToolUseID, "content": b.Content, "is_error": b.IsError})
+				block := map[string]any{"type": "tool_result", "tool_use_id": b.ToolUseID, "content": b.Content}
+				if b.IsError {
+					block["is_error"] = true
+				}
+				content = append(content, block)
 			}
 		}
 		messages = append(messages, map[string]any{"role": msg.Role, "content": content})
@@ -128,7 +132,7 @@ func (p *AnthropicProvider) parseResponse(data []byte) (*Response, error) {
 	}
 
 	blocks := make([]Block, 0, len(raw.Content))
-	for _, rawBlock := range raw.Content {
+	for i, rawBlock := range raw.Content {
 		var blockType struct {
 			Type string `json:"type"`
 		}
@@ -156,7 +160,18 @@ func (p *AnthropicProvider) parseResponse(data []byte) (*Response, error) {
 				Input json.RawMessage `json:"input"`
 			}
 			json.Unmarshal(rawBlock, &tu)
-			blocks = append(blocks, ToolUseBlock{ID: tu.ID, Name: tu.Name, Input: tu.Input})
+			if tu.ID == "" {
+				tu.ID = fmt.Sprintf("toolu_%d", i)
+			}
+			input := tu.Input
+			// Unwrap string-encoded JSON (some providers double-encode)
+			if len(input) > 0 && input[0] == '"' {
+				var inner string
+				if json.Unmarshal(input, &inner) == nil && json.Valid([]byte(inner)) {
+					input = json.RawMessage(inner)
+				}
+			}
+			blocks = append(blocks, ToolUseBlock{ID: tu.ID, Name: tu.Name, Input: input})
 		}
 	}
 

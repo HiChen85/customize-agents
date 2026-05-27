@@ -53,14 +53,16 @@ func (p *AnthropicProvider) parseSSEStream(ctx context.Context, body io.ReadClos
 	scanner.Buffer(make([]byte, 0, 1024*1024), 1024*1024)
 
 	type toolBuffer struct {
-		ID        string
-		Name      string
-		InputJSON strings.Builder
-		RawLines  []string
+		ID          string
+		Name        string
+		InputJSON   strings.Builder
+		InlineInput json.RawMessage // from content_block_start, used as fallback
+		RawLines    []string
 	}
 
 	var currentTool *toolBuffer
 	var currentThinking *strings.Builder
+	var stopReason string
 
 	for scanner.Scan() {
 		select {
@@ -109,12 +111,16 @@ func (p *AnthropicProvider) parseSSEStream(ctx context.Context, body io.ReadClos
 		switch event.Type {
 		case "content_block_start":
 			if event.ContentBlock.Type == "tool_use" {
+				id := event.ContentBlock.ID
+				if id == "" {
+					id = fmt.Sprintf("toolu_%d", event.Index)
+				}
 				currentTool = &toolBuffer{
-					ID:   event.ContentBlock.ID,
+					ID:   id,
 					Name: event.ContentBlock.Name,
 				}
 				if len(event.ContentBlock.Input) > 0 && string(event.ContentBlock.Input) != "null" && string(event.ContentBlock.Input) != "{}" {
-					currentTool.InputJSON.Write(event.ContentBlock.Input)
+					currentTool.InlineInput = event.ContentBlock.Input
 					slog.Debug("stream: tool_use block started with inline input", "tool", event.ContentBlock.Name, "input_len", len(event.ContentBlock.Input))
 				} else {
 					slog.Debug("stream: tool_use block started", "tool", event.ContentBlock.Name, "id", event.ContentBlock.ID)
@@ -124,33 +130,47 @@ func (p *AnthropicProvider) parseSSEStream(ctx context.Context, body io.ReadClos
 			}
 
 		case "content_block_delta":
-			if event.Delta.Type == "text_delta" {
-				ch <- StreamEvent{Type: "text_delta", Text: event.Delta.Text}
-			} else if event.Delta.Type == "input_json_delta" && currentTool != nil {
-				if event.Delta.PartialJSON != "" {
-					currentTool.InputJSON.WriteString(event.Delta.PartialJSON)
-				} else if event.Delta.JSON != "" {
-					currentTool.InputJSON.WriteString(event.Delta.JSON)
-				} else if event.Delta.Text != "" {
-					currentTool.InputJSON.WriteString(event.Delta.Text)
+			if currentTool != nil {
+				// Inside a tool_use block — route ALL delta content as tool input.
+				// Deepseek may use text_delta, input_json_delta, or other types.
+				text := event.Delta.PartialJSON
+				if text == "" {
+					text = event.Delta.JSON
 				}
-			} else if event.Delta.Type == "thinking_delta" && currentThinking != nil {
-				currentThinking.WriteString(event.Delta.Thinking)
-			} else if currentTool != nil {
-				if event.Delta.PartialJSON != "" {
-					currentTool.InputJSON.WriteString(event.Delta.PartialJSON)
-				} else if event.Delta.JSON != "" {
-					currentTool.InputJSON.WriteString(event.Delta.JSON)
-				} else if event.Delta.Type != "" {
-					slog.Warn("stream: unrecognized delta type during tool input", "type", event.Delta.Type, "tool", currentTool.Name)
+				if text == "" {
+					text = event.Delta.Text
+				}
+				if text == "" {
+					text = event.Delta.Thinking
+				}
+				if text != "" {
+					currentTool.InputJSON.WriteString(text)
+				}
+			} else if currentThinking != nil {
+				text := event.Delta.Thinking
+				if text == "" {
+					text = event.Delta.Text
+				}
+				if text != "" {
+					currentThinking.WriteString(text)
+				}
+			} else {
+				if event.Delta.Text != "" {
+					ch <- StreamEvent{Type: "text_delta", Text: event.Delta.Text}
 				}
 			}
 
 		case "content_block_stop":
 			if currentTool != nil {
 				inputJSON := currentTool.InputJSON.String()
+				if inputJSON == "" && len(currentTool.InlineInput) > 0 {
+					// No deltas arrived — use the inline input from content_block_start
+					inputJSON = string(currentTool.InlineInput)
+					slog.Debug("stream: using inline input (no deltas received)", "tool", currentTool.Name)
+				}
 				if inputJSON == "" {
-					slog.Warn("tool input JSON is empty, defaulting to {}", "tool", currentTool.Name)
+					slog.Warn("tool input JSON is empty, defaulting to {}", "tool", currentTool.Name,
+						"raw_lines", len(currentTool.RawLines))
 					inputJSON = "{}"
 				} else if !json.Valid([]byte(inputJSON)) {
 					repaired := repairTruncatedJSON(inputJSON)
@@ -158,8 +178,17 @@ func (p *AnthropicProvider) parseSSEStream(ctx context.Context, body io.ReadClos
 						slog.Warn("tool input JSON was truncated, repaired", "tool", currentTool.Name, "original_len", len(inputJSON))
 						inputJSON = repaired
 					} else {
-						slog.Warn("tool input JSON is invalid and unrepairable", "tool", currentTool.Name, "len", len(inputJSON))
+						slog.Warn("tool input JSON is invalid and unrepairable", "tool", currentTool.Name, "len", len(inputJSON),
+							"first_100", inputJSON[:min(100, len(inputJSON))])
 						inputJSON = "{}"
+					}
+				}
+				// Unwrap string-encoded JSON (Deepseek may double-encode input)
+				if len(inputJSON) > 0 && inputJSON[0] == '"' {
+					var inner string
+					if json.Unmarshal([]byte(inputJSON), &inner) == nil && json.Valid([]byte(inner)) {
+						slog.Debug("stream: unwrapped string-encoded tool input", "tool", currentTool.Name)
+						inputJSON = inner
 					}
 				}
 				ch <- StreamEvent{
@@ -179,8 +208,13 @@ func (p *AnthropicProvider) parseSSEStream(ctx context.Context, body io.ReadClos
 				currentThinking = nil
 			}
 
+		case "message_delta":
+			if event.Delta.StopReason != "" {
+				stopReason = event.Delta.StopReason
+			}
+
 		case "message_stop":
-			ch <- StreamEvent{Type: "done"}
+			ch <- StreamEvent{Type: "done", StopReason: stopReason}
 			return
 		}
 	}
@@ -188,8 +222,22 @@ func (p *AnthropicProvider) parseSSEStream(ctx context.Context, body io.ReadClos
 	// Handle incomplete tool if stream ended mid-tool
 	if currentTool != nil {
 		inputJSON := currentTool.InputJSON.String()
+		if inputJSON == "" && len(currentTool.InlineInput) > 0 {
+			inputJSON = string(currentTool.InlineInput)
+		}
 		if inputJSON == "" || !json.Valid([]byte(inputJSON)) {
-			inputJSON = "{}"
+			repaired := repairTruncatedJSON(inputJSON)
+			if repaired != "" {
+				inputJSON = repaired
+			} else {
+				inputJSON = "{}"
+			}
+		}
+		if len(inputJSON) > 0 && inputJSON[0] == '"' {
+			var inner string
+			if json.Unmarshal([]byte(inputJSON), &inner) == nil && json.Valid([]byte(inner)) {
+				inputJSON = inner
+			}
 		}
 		ch <- StreamEvent{
 			Type: "tool_use",
