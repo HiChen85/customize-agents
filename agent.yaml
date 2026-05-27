@@ -23,7 +23,7 @@ search:
   base_url: "https://api.tavily.com"
 
 server:
-  port: 8080
+  port: 10089
 
 # hooks:
 #   before_tool_call:

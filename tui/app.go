@@ -167,13 +167,14 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case AgentDoneMsg:
 		m.chatView.FinalizeAssistant()
 		m.running = false
-		m.input.SetDisabled(false)
+		m.input.SetDone()
 		m.statusbar.SetState("idle")
 		if m.oneshotSkill != "" && m.registry != nil {
 			m.registry.Deactivate(m.oneshotSkill)
 			m.oneshotSkill = ""
 		}
-		cmds = append(cmds, m.input.Focus())
+		m.chatView.rerender()
+		cmds = append(cmds, m.input.Focus(), tea.ClearScreen)
 		return m, tea.Batch(cmds...)
 
 	case AgentErrorMsg:
@@ -185,7 +186,8 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.registry.Deactivate(m.oneshotSkill)
 			m.oneshotSkill = ""
 		}
-		cmds = append(cmds, m.input.Focus())
+		m.chatView.rerender()
+		cmds = append(cmds, m.input.Focus(), tea.ClearScreen)
 		return m, tea.Batch(cmds...)
 
 	case AgentStateMsg:

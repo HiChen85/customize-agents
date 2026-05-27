@@ -72,9 +72,10 @@ type ToolDef struct {
 }
 
 type StreamEvent struct {
-	Type       string         // "text_delta", "tool_use", "thinking", "error", "done"
-	Text       string         // populated for text_delta
-	ToolUse    *ToolUseBlock  // populated for tool_use (complete block)
+	Type       string         // "text_delta", "tool_use", "tool_use_start", "tool_result", "thinking", "error", "done"
+	Text       string         // populated for text_delta and thinking
+	ToolUse    *ToolUseBlock  // populated for tool_use, tool_use_start, tool_result
+	ToolResult string         // populated for tool_result (tool execution output)
 	Thinking   *ThinkingBlock // populated for thinking (complete block)
 	Error      error          // populated for error type
 	StopReason string         // populated for done (e.g. "end_turn", "max_tokens", "tool_use")

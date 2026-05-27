@@ -13,13 +13,13 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	"github.com/HiChen85/customize-agents/config"
 	"github.com/HiChen85/customize-agents/core"
 	"github.com/HiChen85/customize-agents/llm"
 	"github.com/HiChen85/customize-agents/mcp"
 	"github.com/HiChen85/customize-agents/memory"
 	"github.com/HiChen85/customize-agents/skill"
+	"github.com/gin-gonic/gin"
 )
 
 func main() {
@@ -303,10 +303,26 @@ func streamChatHandler(sessionMgr *core.SessionManager) gin.HandlerFunc {
 			switch event.Type {
 			case "text_delta":
 				data, _ = json.Marshal(gin.H{"type": "text_delta", "text": event.Text})
+			case "thinking":
+				data, _ = json.Marshal(gin.H{"type": "thinking", "text": event.Text})
 			case "tool_use":
 				if event.ToolUse != nil {
-					data, _ = json.Marshal(gin.H{"type": "tool_use", "tool": event.ToolUse.Name})
+					data, _ = json.Marshal(gin.H{"type": "tool_use", "tool": event.ToolUse.Name, "input": json.RawMessage(event.ToolUse.Input)})
 				}
+			case "tool_use_start":
+				if event.ToolUse != nil {
+					data, _ = json.Marshal(gin.H{"type": "tool_use_start", "tool": event.ToolUse.Name, "input": json.RawMessage(event.ToolUse.Input)})
+				}
+			case "tool_result":
+				if event.ToolUse != nil {
+					data, _ = json.Marshal(gin.H{"type": "tool_result", "tool": event.ToolUse.Name, "output": event.ToolResult})
+				}
+			case "error":
+				errMsg := "unknown error"
+				if event.Error != nil {
+					errMsg = event.Error.Error()
+				}
+				data, _ = json.Marshal(gin.H{"type": "error", "error": errMsg})
 			}
 			if data != nil {
 				c.SSEvent("message", string(data))

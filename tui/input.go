@@ -16,6 +16,7 @@ type InputSubmitMsg struct {
 type InputModel struct {
 	textarea    textarea.Model
 	disabled    bool
+	doneHint    bool
 	width       int
 	skills      []string
 	showPicker  bool
@@ -55,9 +56,15 @@ func (m *InputModel) Blur() {
 
 func (m *InputModel) SetDisabled(disabled bool) {
 	m.disabled = disabled
+	m.doneHint = false
 	if disabled {
 		m.textarea.Blur()
 	}
+}
+
+func (m *InputModel) SetDone() {
+	m.disabled = false
+	m.doneHint = true
 }
 
 func (m InputModel) filteredSkills() []string {
@@ -76,6 +83,12 @@ func (m InputModel) filteredSkills() []string {
 func (m InputModel) Update(msg tea.Msg) (InputModel, tea.Cmd) {
 	if m.disabled {
 		return m, nil
+	}
+
+	if m.doneHint {
+		if _, ok := msg.(tea.KeyMsg); ok {
+			m.doneHint = false
+		}
 	}
 
 	switch msg := msg.(type) {
@@ -160,6 +173,10 @@ func (m InputModel) View() string {
 
 	if m.disabled {
 		return border.Render(StyleMuted.Render("  Agent is working..."))
+	}
+
+	if m.doneHint {
+		return border.Render(StyleSuccess.Render("  ✓ Task done") + StyleMuted.Render(" — press Enter to continue"))
 	}
 
 	inputView := border.Render(m.textarea.View())

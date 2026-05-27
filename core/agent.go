@@ -36,10 +36,10 @@ func NewAgent(provider llm.Provider, mm *memory.MemoryManager, tools []Tool, reg
 	}
 }
 
-func (a *Agent) SetHookRegistry(r *HookRegistry)    { a.hooks = r }
-func (a *Agent) SetLifecycle(l *Lifecycle)           { a.lifecycle = l }
-func (a *Agent) SetMaxOutputTokens(n int)            { a.maxOutputTokens = n }
-func (a *Agent) Lifecycle() *Lifecycle               { return a.lifecycle }
+func (a *Agent) SetHookRegistry(r *HookRegistry) { a.hooks = r }
+func (a *Agent) SetLifecycle(l *Lifecycle)       { a.lifecycle = l }
+func (a *Agent) SetMaxOutputTokens(n int)        { a.maxOutputTokens = n }
+func (a *Agent) Lifecycle() *Lifecycle           { return a.lifecycle }
 
 func (a *Agent) checkPausePoint(ctx context.Context) error {
 	if a.lifecycle == nil {
@@ -241,15 +241,18 @@ func (a *Agent) RunStream(ctx context.Context, userInput string, onEvent func(ll
 				if event.ToolUse != nil {
 					toolCalls = append(toolCalls, *event.ToolUse)
 					blocks = append(blocks, *event.ToolUse)
+					onEvent(event)
 				}
 			case "thinking":
 				if event.Thinking != nil {
 					blocks = append(blocks, *event.Thinking)
+					onEvent(llm.StreamEvent{Type: "thinking", Text: event.Thinking.Thinking, Thinking: event.Thinking})
 				}
 			case "done":
 				streamStopReason = event.StopReason
 			case "error":
 				a.fireHook(ctx, HookPayload{Event: OnError, Error: event.Error})
+				onEvent(event)
 				return fullText.String(), event.Error
 			}
 		}
@@ -307,7 +310,7 @@ func (a *Agent) RunStream(ctx context.Context, userInput string, onEvent func(ll
 		}
 
 		lastText = fullText.String()
-		results := a.executeTools(ctx, toolCalls)
+		results := a.executeToolsStream(ctx, toolCalls, onEvent)
 		toolResultMsg := llm.Message{Role: "user", Content: results}
 		a.memory.AppendMessage(toolResultMsg)
 	}
@@ -367,6 +370,25 @@ func (a *Agent) executeTools(ctx context.Context, calls []llm.ToolUseBlock) []ll
 		go func(idx int, c llm.ToolUseBlock) {
 			defer wg.Done()
 			results[idx] = a.executeSingleTool(ctx, c)
+		}(i, call)
+	}
+
+	wg.Wait()
+	return results
+}
+
+func (a *Agent) executeToolsStream(ctx context.Context, calls []llm.ToolUseBlock, onEvent func(llm.StreamEvent)) []llm.Block {
+	results := make([]llm.Block, len(calls))
+	var wg sync.WaitGroup
+	wg.Add(len(calls))
+
+	for i, call := range calls {
+		go func(idx int, c llm.ToolUseBlock) {
+			defer wg.Done()
+			onEvent(llm.StreamEvent{Type: "tool_use_start", ToolUse: &c})
+			result := a.executeSingleTool(ctx, c)
+			onEvent(llm.StreamEvent{Type: "tool_result", ToolUse: &c, ToolResult: result.Content})
+			results[idx] = result
 		}(i, call)
 	}
 
