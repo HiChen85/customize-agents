@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -298,6 +299,7 @@ func streamChatHandler(sessionMgr *core.SessionManager) gin.HandlerFunc {
 
 		ctx := c.Request.Context()
 
+		var writeMu sync.Mutex
 		onEvent := func(event llm.StreamEvent) {
 			var data []byte
 			switch event.Type {
@@ -325,8 +327,10 @@ func streamChatHandler(sessionMgr *core.SessionManager) gin.HandlerFunc {
 				data, _ = json.Marshal(gin.H{"type": "error", "error": errMsg})
 			}
 			if data != nil {
+				writeMu.Lock()
 				c.SSEvent("message", string(data))
 				c.Writer.Flush()
+				writeMu.Unlock()
 			}
 		}
 
