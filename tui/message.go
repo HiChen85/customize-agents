@@ -39,6 +39,10 @@ type AgentStateMsg struct {
 	State string
 }
 
+type HookMsg struct {
+	Text string
+}
+
 // Focus area
 type FocusArea int
 

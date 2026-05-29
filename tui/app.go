@@ -193,6 +193,11 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case AgentStateMsg:
 		m.statusbar.SetState(msg.State)
 		return m, nil
+
+	case HookMsg:
+		m.chatView.AppendItem(&SystemMessage{Text: msg.Text})
+		m.chatView.rerender()
+		return m, nil
 	}
 
 	switch m.focus {
@@ -554,6 +559,24 @@ func Run(agent *core.Agent, mm *memory.MemoryManager, registry *skill.SkillRegis
 	var toolCounter int64
 	var toolCounterMu sync.Mutex
 	var toolQueues sync.Map // key: toolName → value: *toolIDQueue
+
+	hookRegistry.Register(core.BeforeLLMCall, core.NewGoHook(func(ctx context.Context, payload core.HookPayload) error {
+		if p != nil {
+			p.Send(HookMsg{Text: "[Hook] BeforeLLMCall: 正在调用大模型..."})
+		}
+		return nil
+	}))
+
+	hookRegistry.Register(core.AfterLLMCall, core.NewGoHook(func(ctx context.Context, payload core.HookPayload) error {
+		if p != nil {
+			if payload.Error != nil {
+				p.Send(HookMsg{Text: fmt.Sprintf("[Hook] AfterLLMCall: 大模型调用失败 (%v), 耗时 %s", payload.Error, payload.Duration)})
+			} else {
+				p.Send(HookMsg{Text: fmt.Sprintf("[Hook] AfterLLMCall: 大模型调用完成, 耗时 %s", payload.Duration)})
+			}
+		}
+		return nil
+	}))
 
 	hookRegistry.Register(core.BeforeToolCall, core.NewGoHook(func(ctx context.Context, payload core.HookPayload) error {
 		if p != nil {
